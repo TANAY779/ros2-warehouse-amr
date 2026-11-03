@@ -1,0 +1,61 @@
+# Git hooks that run on every commit. Install once per clone with: pre-commit install
+# clang-format and flake8 (with its plugins and setuptools) are pinned to the versions
+# Ubuntu 24.04 / ROS 2 Jazzy ship, so these hooks agree with `colcon test` (see
+# docs/decisions/ADR-003-formatting-and-linting.md). Bump them only together with the ROS
+# distro. The other hooks may be updated with `pre-commit autoupdate --repo <url>`; a plain
+# `pre-commit autoupdate` would also bump the pinned ones.
+minimum_pre_commit_version: "3.2.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # --enforce-all also checks files that are already committed, so the limits hold in CI,
+      # where a clean checkout has nothing staged.
+      - id: check-added-large-files
+        args: [--maxkb=1024, --enforce-all]
+        exclude: ^docs/media/
+      - id: check-added-large-files
+        name: check media size
+        args: [--maxkb=3072, --enforce-all]
+        files: ^docs/media/
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: check-xml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v18.1.3
+    hooks:
+      - id: clang-format
+        # The hook also targets JSON/JS/Java by default; our style file is C++-only.
+        types_or: [c++, c]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-builtins==2.1.0
+          - flake8-comprehensions==3.14.0
+          - flake8-docstrings==1.6.0
+          - flake8-import-order==0.18.2
+          - flake8-quotes==3.4.0
+          - pydocstyle==6.3.0
+          # flake8-import-order 0.18.2 imports pkg_resources, which setuptools removed in
+          # 82.0. 68.1.2 is the version Ubuntu 24.04 ships (python3-setuptools).
+          - setuptools==68.1.2
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint

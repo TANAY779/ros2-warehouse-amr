@@ -1,0 +1,23 @@
+# ROS 2 C++ style. Identical to the configuration bundled with ament_clang_format (Jazzy),
+# which `colcon test` uses, so pre-commit and CI format code the same way. Do not edit
+# without reading docs/decisions/ADR-003-formatting-and-linting.md.
+---
+Language: Cpp
+BasedOnStyle: Google
+
+AccessModifierOffset: -2
+AlignAfterOpenBracket: AlwaysBreak
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterEnum: true
+BreakBeforeBraces: Custom
+ColumnLimit: 100
+ConstructorInitializerIndentWidth: 0
+ContinuationIndentWidth: 2
+DerivePointerAlignment: false
+PointerAlignment: Middle
+ReflowComments: false
+...
