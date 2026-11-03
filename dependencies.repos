@@ -1,0 +1,3 @@
+# Third-party source dependencies that are not available as Jazzy binaries.
+# Import from the workspace root with: vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+repositories: {}
