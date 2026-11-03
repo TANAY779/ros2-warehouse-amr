@@ -1,0 +1,55 @@
+{
+  "name": "ros2-warehouse-amr (ROS 2 Jazzy)",
+  "initializeCommand": "xhost +SI:localuser:$(id -un) >/dev/null 2>&1 || true",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "USERNAME": "ros"
+    }
+  },
+  "remoteUser": "ros",
+  "updateRemoteUserUID": true,
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ros/ws/src/ros2-warehouse-amr,type=bind",
+  "workspaceFolder": "/home/ros/ws",
+  "runArgs": [
+    "--network=host",
+    "--ipc=host",
+    "--cap-add=SYS_PTRACE",
+    "--device=/dev/dri",
+    "--group-add=${localEnv:RENDER_GID:992}"
+  ],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "QT_QPA_PLATFORM": "xcb",
+    "XDG_RUNTIME_DIR": "/tmp/runtime-ros",
+    "ROS_DOMAIN_ID": "42",
+    "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
+    "AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS": "1"
+  },
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
+  ],
+  "postCreateCommand": "bash src/ros2-warehouse-amr/.devcontainer/post-create.sh",
+  "postStartCommand": "mkdir -p -m 700 /tmp/runtime-ros && if [ -e /dev/dri/renderD128 ] && [ ! -w /dev/dri/renderD128 ]; then echo \"WARNING: no access to /dev/dri/renderD128, so GPU rendering falls back to llvmpipe. Set RENDER_GID=$(stat -c %g /dev/dri/renderD128) on the host and rebuild.\"; fi",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "editorconfig.editorconfig",
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "ms-python.flake8",
+        "redhat.vscode-xml",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "C_Cpp.clang_format_style": "file",
+        "C_Cpp.clang_format_path": "/usr/bin/clang-format",
+        "flake8.importStrategy": "fromEnvironment",
+        "flake8.cwd": "${workspaceFolder}/src/ros2-warehouse-amr",
+        "git.repositoryScanMaxDepth": 2,
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true
+      }
+    }
+  }
+}
