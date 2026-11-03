@@ -1,0 +1,89 @@
+# Lint every file with pre-commit, then build and test every package with colcon.
+# The build job runs the same vcs/rosdep/colcon commands used for local development
+# (see docs/decisions/ADR-004-ci-pipeline.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A pull request's runs share one group, so a new push cancels the superseded run. Each push
+  # to main gets its own group (its commit SHA), so every commit on main gets a CI result; with
+  # a shared group, GitHub would still replace a waiting push run with a newer one.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The job names ("Lint (pre-commit)", "Build & test (ROS 2 Jazzy)") are the required status
+# checks of the main branch ruleset. Rename a job only together with the ruleset.
+jobs:
+  pre-commit:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          # The hook environments depend on the Python build as well as on the config.
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Install pre-commit
+        run: python -m pip install pre-commit==3.6.2
+      - name: Run all hooks
+        run: pre-commit run --all-files --show-diff-on-failure --color=always
+
+  build-test:
+    name: Build & test (ROS 2 Jazzy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ros:jazzy-ros-base
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # ament_cppcheck silently skips cppcheck 2.x unless this is set (ADR-003).
+      AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out into a colcon workspace
+        uses: actions/checkout@v7
+        with:
+          path: src/ros2-warehouse-amr
+          persist-credentials: false
+      - name: Import third-party sources
+        run: vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+      - name: Install dependencies with rosdep
+        run: |
+          apt-get update
+          rosdep update --rosdistro jazzy
+          rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
+      - name: Build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Test
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon test --event-handlers console_cohesion+
+          colcon test-result --verbose
+      - name: Upload logs and test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: colcon-logs
+          path: |
+            log/
+            build/*/test_results/
+          if-no-files-found: ignore
