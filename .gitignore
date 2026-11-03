@@ -1,0 +1,45 @@
+# colcon output (only appears here if someone builds from inside the repo by mistake)
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+
+# C++ tooling
+compile_commands.json
+.cache/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Large data and artifacts: publish via GitHub Releases or external storage, never git
+*.mcap
+*.db3
+rosbag2_*/
+*.onnx
+*.pt
+*.pth
+datasets/
+
+# Small test fixtures are allowed (keep each under 1 MB)
+!**/test/data/*.mcap
+!**/test/data/*.onnx
+
+# ML track
+.ipynb_checkpoints/
+runs/
+*.ckpt
+*.safetensors
+*_openvino_model/
