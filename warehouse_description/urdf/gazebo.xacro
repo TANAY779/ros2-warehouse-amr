@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo-only systems of the robot (hardware:=gz).
+
+  OdometryPublisher reports the true pose of the robot (its world pose, frame "map", because
+  the Gazebo world frame is the map frame, plan §2.4) for tests and evaluation only. The robot
+  stack must never use it (plan §2.3). The bridge maps /<namespace>/ground_truth/odom to the
+  ROS topic ground_truth/odom. Its other two outputs are namespaced too, so robots never share
+  a gz topic, but they are not bridged.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="gazebo_ground_truth">
+    <gazebo>
+      <plugin filename="gz-sim-odometry-publisher-system"
+              name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>map</odom_frame>
+        <robot_base_frame>base_footprint</robot_base_frame>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <odom_topic>${gz_topic_prefix}/ground_truth/odom</odom_topic>
+        <odom_covariance_topic>${gz_topic_prefix}/ground_truth/odom_with_covariance</odom_covariance_topic>
+        <tf_topic>${gz_topic_prefix}/ground_truth/tf</tf_topic>
+        <!-- 3D: z, roll and pitch too, so a test would notice the robot tipping. -->
+        <dimensions>3</dimensions>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+</robot>
