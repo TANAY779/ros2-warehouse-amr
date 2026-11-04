@@ -20,6 +20,10 @@
   with a GitHub Release. Before a release tag, set `<version>` in every `package.xml` to the
   release number; between releases packages stay at their last release (0.1.0 before v1.0.0).
 - **Design decisions** that are hard to reverse get an ADR in `docs/decisions/`.
+- **Documentation:** every feature PR updates [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
+  (the feature entry, the decisions log and the planned list). Every finished phase adds a
+  learning report, `docs/phase-reports/phase-NN-<name>.md` (for example
+  `phase-01-robot-description.md`), before its `phase-N` tag.
 - **Media:** demo GIFs and other files in `docs/media/` stay under 3 MB; every other file
   stays under 1 MB (pre-commit enforces both). Longer demos go on a GitHub Release as MP4
   files, linked from the README.
