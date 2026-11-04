@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>warehouse_navigation</name>
+  <version>0.1.0</version>
+  <description>Localization and navigation of the warehouse AMR: the robot_localization EKF (Phase 1), later AMCL, maps and Nav2.</description>
+  <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+
+  <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
