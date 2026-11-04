@@ -1,0 +1,25 @@
+# ros_gz_bridge topics of one robot (plan §2.3).
+#
+# spawn_robot.launch.py runs the bridge inside the robot's namespace with
+# expand_gz_topic_names: true. The bridge then expands a relative gz topic name with its
+# own namespace, exactly like a ROS name: "scan" becomes /robot1/scan, the gz topic the
+# xacro gives the sensor. This one file therefore serves every robot (plan R12).
+#
+# Not bridged: the IMU and the wheel joints, which go through gz_ros2_control, and /clock,
+# which gazebo.launch.py bridges once per world.
+
+- ros_topic_name: scan
+  gz_topic_name: scan
+  ros_type_name: sensor_msgs/msg/LaserScan
+  gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+  # Best effort, keep last 5: the standard QoS for high-rate sensor streams. Subscribers
+  # must not ask for reliable delivery (RViz: Reliability Policy "Best Effort").
+  qos_profile: SENSOR_DATA
+
+# Ground truth from gz OdometryPublisher, for tests and evaluation only (plan §2.3).
+- ros_topic_name: ground_truth/odom
+  gz_topic_name: ground_truth/odom
+  ros_type_name: nav_msgs/msg/Odometry
+  gz_type_name: gz.msgs.Odometry
+  direction: GZ_TO_ROS

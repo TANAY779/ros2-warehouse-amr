@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>warehouse_gazebo</name>
+  <version>0.1.0</version>
+  <description>Gazebo Harmonic worlds, robot spawning and ros_gz bridge configuration for the warehouse AMR simulation.</description>
+  <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- Gazebo Sim 8 (Harmonic) and the gz command line tool, as ROS vendor packages -->
+  <exec_depend>gz_sim_vendor</exec_depend>
+  <exec_depend>gz_tools_vendor</exec_depend>
+  <!-- The create node (spawning) and the bridge between gz and ROS topics -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <!-- The gz_ros2_control system plugin that the robot description loads for hardware:=gz -->
+  <exec_depend>gz_ros2_control</exec_depend>
+
+  <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

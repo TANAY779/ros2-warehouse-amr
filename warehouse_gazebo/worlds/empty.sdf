@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<!--
+  Empty world for Phase 1: a ground plane, a sun and the systems the robot needs.
+
+  A world that lists any <plugin> loads only the systems it lists (Gazebo's default set is
+  skipped), so every system the robot relies on must appear here. See the package README
+  for why each one is needed.
+-->
+<sdf version="1.9">
+  <world name="empty">
+
+    <!-- 1 ms steps at real time: the controller manager runs at 100 Hz, so each control
+         cycle covers 10 physics steps. -->
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Rigid-body dynamics (DART). -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <!-- Services to create, move and remove entities: ros_gz_sim create spawns through it. -->
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <!-- Publishes the scene for the GUI and for rendering sensors. -->
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Renders the robot's rendering sensors (gpu_lidar) with the ogre2 engine. -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <!-- Computes IMU sensor data. -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <scene>
+      <ambient>0.6 0.6 0.6 1.0</ambient>
+      <background>0.75 0.80 0.85 1.0</background>
+      <grid>false</grid>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.55 0.55 0.55 1</ambient>
+            <diffuse>0.55 0.55 0.55 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
