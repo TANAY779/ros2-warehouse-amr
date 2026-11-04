@@ -28,6 +28,16 @@ Dependabot keeps the action versions current.
 A separate nightly simulation job (headless Gazebo) is added in Phase 6; it does not block
 pull requests.
 
+**Phase 1 addition (2026-11-05).** With the first launch tests, the build-and-test job sets two
+environment variables:
+
+- `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, like the dev containers: DDS discovery stays on the
+  runner. Each launch test file also runs in its own `ROS_DOMAIN_ID`, picked by
+  `domain_coordinator` through `ament_cmake_ros`'s `run_test_isolated.py`.
+- `WAREHOUSE_SKIP_GZ_TESTS=1`: the runners have no GPU or EGL for Gazebo's rendering sensors,
+  so the Gazebo launch tests report every case as skipped. The mock-hardware launch tests
+  (`hardware:=mock`, no simulator) run in every pull request.
+
 ## Alternatives considered
 
 | Option | Why not |
@@ -50,4 +60,7 @@ pull requests.
 - Job timeouts (10 minutes for lint, 30 for build & test) stop a stalled apt mirror or a hung
   test from holding a runner for GitHub's 6-hour default.
 - rosdep installs dependencies on every run; add caching or a prebuilt image if build times
-  grow past a few minutes.
+  grow past a few minutes. From Phase 1 that includes Gazebo, ros2_control and RViz (the
+  packages' run dependencies), even though CI skips the Gazebo tests.
+- `colcon test-result` reports the Gazebo test cases as skipped in CI. A skipped count above
+  zero is expected there; locally it should be zero.

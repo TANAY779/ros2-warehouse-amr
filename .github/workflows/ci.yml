@@ -53,6 +53,13 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       # ament_cppcheck silently skips cppcheck 2.x unless this is set (ADR-003).
       AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS: "1"
+      # Launch tests talk over DDS. Keep discovery on this machine, like the dev containers
+      # (ADR-004); each test file gets its own ROS_DOMAIN_ID from domain_coordinator.
+      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      # Gazebo's rendering sensors need a GPU or EGL, which the runners lack: report the
+      # Gazebo launch tests as skipped (warehouse_system_tests/README.md). The mock-hardware
+      # launch tests still run.
+      WAREHOUSE_SKIP_GZ_TESTS: "1"
     defaults:
       run:
         shell: bash
