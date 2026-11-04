@@ -98,7 +98,11 @@ cd ~/warehouse_ws/src/ros2-warehouse-amr && pre-commit install
 
 | Path | Contents |
 |---|---|
-| `warehouse_bringup/` | Top-level launch files and configuration |
+| `warehouse_bringup/` | Top-level launch files (`sim.launch.py`), RViz configuration |
+| `warehouse_description/` | The robot: `robot.yaml`, xacro model, ros2_control and controller configuration |
+| `warehouse_gazebo/` | Gazebo worlds, robot spawning, ros_gz bridge configuration |
+| `warehouse_navigation/` | Localization (the odometry EKF); AMCL and Nav2 in later phases |
+| `warehouse_system_tests/` | Launch tests of the running system (mock hardware in CI, Gazebo locally) |
 | `docs/` | Project status, phase reports, project plan and architecture decision records |
 | `.devcontainer/` | Development container (default and headless configurations) |
 | `.github/` | CI workflow, Dependabot, PR template |
