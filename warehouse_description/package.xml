@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>warehouse_description</name>
+  <version>0.1.0</version>
+  <description>Robot description of the warehouse tote AMR: robot.yaml, the xacro model, its ros2_control interfaces and the controller configuration.</description>
+  <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Turning the xacro into URDF -->
+  <exec_depend>xacro</exec_depend>
+  <!-- Controllers named in config/controllers.yaml -->
+  <exec_depend>diff_drive_controller</exec_depend>
+  <exec_depend>imu_sensor_broadcaster</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <!-- mock_components/GenericSystem (hardware:=mock) is part of hardware_interface -->
+  <exec_depend>hardware_interface</exec_depend>
+
+  <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_index_python</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+  <!-- check_urdf -->
+  <test_depend>urdfdom</test_depend>
+  <!-- urdf_parser_py -->
+  <test_depend>urdfdom_py</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

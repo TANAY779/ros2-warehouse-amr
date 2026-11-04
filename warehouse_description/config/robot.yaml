@@ -1,0 +1,83 @@
+# Warehouse tote AMR: the single source of the robot's geometry (docs/PROJECT_PLAN.md §2.6, D1).
+#
+# Rule: geometry is generated, tuning is validated. The xacro reads this file with
+# xacro.load_yaml(), so the URDF never repeats a number from here. Tuning files that need the
+# same numbers (controllers.yaml today; Nav2, safety fields and the battery later) are checked
+# against this file by tests (warehouse_description/test/test_description.py).
+#
+# Units are SI (metres, kilograms, seconds, radians), except keys ending in _deg (degrees).
+# Heights (height, bottom, top, clearance, ...) are measured from the floor. x and y are
+# measured from the robot centre, base_link, which sits on the drive axle. REP-103 axes:
+# x forward, y left, z up.
+revision: B
+
+# Outline of the body seen from above. It is also the Nav2 footprint (Phase 3).
+footprint:
+  length: 0.64
+  width: 0.48
+  padding: 0.04            # Nav2 footprint_padding (Phase 3)
+
+body:
+  clearance: 0.03          # floor to the underside of the body
+  deck_height: 0.30        # top of the deck
+  # The 2D scanners look out through a groove that runs around the body. Inside the groove
+  # the body is set back by `inset`, so a corner scanner sees past the body (264 degrees).
+  groove:
+    bottom: 0.15
+    top: 0.25
+    inset: 0.03
+  mass: 32.6               # chassis, battery, drive units and electronics
+  com_height: 0.145        # battery low in the chassis: 2 cm below the body's centre (0.165)
+
+drive:
+  wheel_radius: 0.075
+  wheel_width: 0.04
+  wheel_separation: 0.40   # distance between the two wheel centres
+  wheel_mass: 1.0
+
+# Two frictionless ball casters on the centre line, one in front and one behind the axle.
+casters:
+  radius: 0.03
+  x_offset: 0.25
+  mass: 0.2
+
+# Hard limits: the last line of defence below Nav2's operating limits (plan §2.6).
+# diff_drive_controller enforces the body limits; the controller manager clamps wheel
+# commands to wheel_max_velocity because controllers.yaml sets enforce_command_limits.
+# The accelerations hold in both directions of travel; controllers.yaml spells out the
+# reverse ones, because the controller's defaults for them are not symmetric.
+limits:
+  linear:
+    max_velocity: 1.2      # m/s forward
+    min_velocity: -0.3     # m/s reverse (reverse only to undock)
+    max_acceleration: 0.8  # m/s^2
+    max_deceleration: -1.5 # m/s^2, negative by convention; also the stop decel of the safety fields
+  angular:
+    max_velocity: 2.0      # rad/s, both directions
+    max_acceleration: 3.0  # rad/s^2, both directions
+  wheel_max_velocity: 22.0 # rad/s; 1.2 m/s while turning at 2 rad/s needs 21.3 rad/s
+  wheel_max_effort: 20.0   # N m per wheel motor (URDF joint limit; accelerating needs about 2 N m)
+
+# Front-left 2D scanner (Rev B). Rev C adds lidar_rear at the rear-right corner.
+lidar_front:
+  x: 0.29                  # the corner of the body inside the groove (0.32 - 0.03)
+  y: 0.21                  # (0.24 - 0.03)
+  height: 0.20             # scan plane, in the middle of the groove
+  yaw_deg: 45.0            # facing diagonally forward-left
+  fov_deg: 264.0           # keeps the edge rays 3 degrees off the body faces: 0 self-hits
+  samples: 529             # 0.5 degree resolution
+  update_rate: 10.0        # Hz
+  range_min: 0.10
+  range_max: 20.0
+  noise_stddev: 0.01       # m
+  housing_radius: 0.03     # visual only
+  housing_height: 0.06
+
+# IMU in the centre of the base, read through ros2_control (imu_sensor_broadcaster).
+imu:
+  x: 0.0
+  y: 0.0
+  height: 0.10
+  update_rate: 100.0           # Hz
+  gyro_noise_stddev: 0.002     # rad/s
+  accel_noise_stddev: 0.02     # m/s^2

@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!--
+  2D safety-scanner-style lidar, simulated with a gz gpu_lidar.
+
+  Params:
+    name    link and sensor name prefix: <name>_link, <name>_joint, sensor <name>
+    config  the scanner's block from robot.yaml (position, field of view, rate, noise)
+    topic   ROS topic name, relative to the robot namespace (scan, later scan_rear)
+
+  gz transport topics are global, so the sensor publishes on <gz_topic_prefix>/<topic>
+  (/robot1/scan). A fixed <topic>scan</topic> would merge the scans of every robot
+  (plan R12). The bridge maps /robot1/scan to the ROS topic scan inside /robot1.
+  gpu_lidar renders the scene, so it sees visuals, not collisions.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="lidar_2d" params="name config topic">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}_link"/>
+      <origin xyz="${config.x} ${config.y} ${config.height - axle_height}"
+              rpy="0 0 ${radians(config.yaw_deg)}"/>
+    </joint>
+
+    <!-- Sensor links have no mass: on a fixed joint Gazebo merges them into the base
+         anyway, and their mass is part of the body budget. -->
+    <link name="${name}_link">
+      <visual name="${name}_housing">
+        <geometry>
+          <cylinder radius="${config.housing_radius}" length="${config.housing_height}"/>
+        </geometry>
+        <material name="sensor_yellow"/>
+      </visual>
+    </link>
+
+    <gazebo reference="${name}_link">
+      <sensor name="${name}" type="gpu_lidar">
+        <topic>${gz_topic_prefix}/${topic}</topic>
+        <!-- Header frame of the LaserScan. Without it gz uses a scoped name such as
+             robot1::base_footprint::lidar_front, which is not a TF frame. -->
+        <gz_frame_id>${name}_link</gz_frame_id>
+        <update_rate>${config.update_rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${config.samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${-radians(config.fov_deg) / 2.0}</min_angle>
+              <max_angle>${radians(config.fov_deg) / 2.0}</max_angle>
+            </horizontal>
+            <!-- One vertical sample: a single horizontal scan plane. -->
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0.0</min_angle>
+              <max_angle>0.0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <!-- range_min (10 cm) also hides the scanner's own housing. -->
+            <min>${config.range_min}</min>
+            <max>${config.range_max}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${config.noise_stddev}</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>

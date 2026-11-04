@@ -1,0 +1,100 @@
+<?xml version="1.0"?>
+<!--
+  Differential drive: two driven wheels on the axle (base_link) and two ball casters.
+
+  Joint frames stay aligned with base_link and the wheels turn about +y, so a positive
+  wheel velocity drives the robot forward on both sides, as diff_drive_controller expects.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="wheel" params="side reflect">
+    <xacro:property name="drive" value="${robot.drive}"/>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${side}_wheel_link"/>
+      <origin xyz="0 ${reflect * drive.wheel_separation / 2.0} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <!-- The controller manager clamps velocity commands to this limit
+           (enforce_command_limits in controllers.yaml). -->
+      <limit effort="${robot.limits.wheel_max_effort}" velocity="${robot.limits.wheel_max_velocity}"/>
+    </joint>
+
+    <link name="${side}_wheel_link">
+      <visual name="${side}_wheel_visual">
+        <!-- URDF cylinders lie along z: roll them by 90 degrees onto the y axle. -->
+        <origin xyz="0 0 0" rpy="${pi / 2.0} 0 0"/>
+        <geometry>
+          <cylinder radius="${drive.wheel_radius}" length="${drive.wheel_width}"/>
+        </geometry>
+        <material name="rubber_black"/>
+      </visual>
+      <!-- A sphere, not a cylinder (plan R13). A cylinder touches the floor along a line
+           whose ends drag when the robot turns in place, which skewed yaw odometry by
+           -8 to -9 % in the prototype. A sphere touches in one point under the wheel
+           centre (0.00 %). It sticks out 3.5 cm past the outline, inside the 4 cm Nav2
+           footprint padding.
+           Collisions stay unnamed: Gazebo applies the <gazebo reference> friction below
+           only to the collision names it generates itself. -->
+      <collision>
+        <geometry>
+          <sphere radius="${drive.wheel_radius}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="${drive.wheel_mass}" radius="${drive.wheel_radius}"
+                               length="${drive.wheel_width}">
+        <origin xyz="0 0 0" rpy="${pi / 2.0} 0 0"/>
+      </xacro:cylinder_inertial>
+    </link>
+
+    <!-- Rubber on the floor: Gazebo's default friction (mu 1.0), written out for clarity. -->
+    <gazebo reference="${side}_wheel_link">
+      <mu1>1.0</mu1>
+      <mu2>1.0</mu2>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="caster" params="position reflect">
+    <xacro:property name="caster" value="${robot.casters}"/>
+
+    <joint name="${position}_caster_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${position}_caster_link"/>
+      <!-- The sphere touches the floor: its centre is one radius above it. -->
+      <origin xyz="${reflect * caster.x_offset} 0 ${caster.radius - axle_height}" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${position}_caster_link">
+      <visual name="${position}_caster_visual">
+        <geometry>
+          <sphere radius="${caster.radius}"/>
+        </geometry>
+        <material name="caster_grey"/>
+      </visual>
+      <!-- Unnamed, so the friction below applies (see the wheel collision). -->
+      <collision>
+        <geometry>
+          <sphere radius="${caster.radius}"/>
+        </geometry>
+      </collision>
+      <xacro:sphere_inertial mass="${caster.mass}" radius="${caster.radius}">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:sphere_inertial>
+    </link>
+
+    <!-- Frictionless: the casters only carry load and never resist a turn. Real AMRs use
+         swivel casters with suspension; a frictionless sphere is the simple sim stand-in. -->
+    <gazebo reference="${position}_caster_link">
+      <mu1>0.0</mu1>
+      <mu2>0.0</mu2>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="drive">
+    <xacro:wheel side="left" reflect="1"/>
+    <xacro:wheel side="right" reflect="-1"/>
+    <xacro:caster position="front" reflect="1"/>
+    <xacro:caster position="rear" reflect="-1"/>
+  </xacro:macro>
+
+</robot>

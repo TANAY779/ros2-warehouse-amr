@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--
+  IMU in the centre of the base, simulated by a gz imu sensor (needs the Imu system in the
+  world). It is not bridged: gz_ros2_control reads it into the IMU state interfaces and
+  imu_sensor_broadcaster publishes sensor_msgs/Imu on imu, the path real hardware would use.
+
+  The gyro and accelerometer get Gaussian noise (robot.yaml imu). The orientation stays
+  noise-free ground truth, which is why the EKF does not fuse it (plan D3).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="gaussian_noise_axes" params="stddev">
+    <x>
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${stddev}</stddev>
+      </noise>
+    </x>
+    <y>
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${stddev}</stddev>
+      </noise>
+    </y>
+    <z>
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${stddev}</stddev>
+      </noise>
+    </z>
+  </xacro:macro>
+
+  <xacro:macro name="imu">
+    <xacro:property name="imu" value="${robot.imu}"/>
+
+    <joint name="imu_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="imu_link"/>
+      <origin xyz="${imu.x} ${imu.y} ${imu.height - axle_height}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Inside the body: no visual, and no mass (see the lidar link). -->
+    <link name="imu_link"/>
+
+    <gazebo reference="imu_link">
+      <!-- The name must match the <sensor> in the ros2_control block: gz_ros2_control finds
+           the gz sensor by this name. -->
+      <sensor name="imu_sensor" type="imu">
+        <topic>${gz_topic_prefix}/imu</topic>
+        <gz_frame_id>imu_link</gz_frame_id>
+        <update_rate>${imu.update_rate}</update_rate>
+        <always_on>true</always_on>
+        <imu>
+          <angular_velocity>
+            <xacro:gaussian_noise_axes stddev="${imu.gyro_noise_stddev}"/>
+          </angular_velocity>
+          <linear_acceleration>
+            <xacro:gaussian_noise_axes stddev="${imu.accel_noise_stddev}"/>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>
