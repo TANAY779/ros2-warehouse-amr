@@ -9,20 +9,32 @@ A simulated warehouse in which autonomous mobile robots (AMRs) will fulfil order
 themselves, scan inventory and work as a fleet. It is being built with ROS 2 Jazzy, Nav2 and
 Gazebo Harmonic, one phase at a time, and each phase will end with a recorded demo.
 
-> **Status:** Phase 0, repository foundation. Nothing drives yet.
+> **Status:** Phase 0 (repository foundation) is complete; Phase 1, the robot, is next.
+> Nothing drives yet.
 
 ## Roadmap
 
 | Milestone | Planned deliverables | Status |
 |---|---|---|
-| M0 Foundation | Repository, CI, lint gates, dev container | in progress |
-| M1 Core AMR | A custom robot that will fulfil orders in a generated warehouse, respect keep-out and speed zones and dock to recharge, plus an operator dashboard | planned |
-| M2 Perception | ArUco shelf and dock tags, an inventory patrol and discrepancy reports | planned |
-| M3 Fleet | Three robots, a fleet manager with task allocation, aisle traffic control and a showcase scenario | planned |
-| Later | Learned perception (trained on Colab) and mobile manipulation | planned |
+| M0 Foundation (Phase 0) | CI green on a one-package repo, lint gates, GUI and headless dev containers, protected `main` | done |
+| M1 Core AMR (Phases 1-6, v1.0.0) | A custom tote-carrying AMR that fulfils a stream of orders in a generated warehouse, respects keepout and speed zones, docks to recharge on its own and logs KPIs. Operators submit orders and watch the live map in our Flask dashboard | planned |
+| M2 Perception (Phases 7-8, v2.0.0) | Docking on a detected ArUco tag. An inventory patrol that reads tote tags with the side cameras, keeps inventory state and flags discrepancies in RViz and the dashboard | planned |
+| M3 Fleet (Phases 9-12, v3.0.0) | 3 identical robots, greedy then auction allocation, aisle traffic control, fleet and traffic views in the dashboard, and the final showcase | planned |
+| Optional (Phases 8b, 13) | Learned tote detection trained on Colab (8b, research paused) and mobile manipulation (13, stretch) | planned |
 
 The full phased plan is in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md); design decisions are
 recorded in [docs/decisions/](docs/decisions/).
+
+## Documentation
+
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md): current status, every feature that exists
+  (what it does, how to use it, where it lives) and a dated log of ideas and decisions.
+- [docs/phase-reports/](docs/phase-reports/): one learning report per finished phase,
+  explaining what was built, the concepts behind it, what went wrong and how it was fixed, with
+  hands-on exercises. Start with
+  [Phase 0: repository foundation](docs/phase-reports/phase-00-foundation.md).
+- [docs/decisions/](docs/decisions/): architecture decision records (ADRs).
+- [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md): the phased project plan.
 
 ## Quick start
 
@@ -69,8 +81,8 @@ has ROS 2 Jazzy, Gazebo Harmonic and all lint tools; the workspace is at `/home/
   (`--ipc=host`), has `CAP_SYS_PTRACE` (so `sudo gdb -p <pid>` can attach to a running node),
   and `ros` has passwordless sudo. Anything you install in it can listen on your network
   interfaces, read shared memory in `/dev/shm` and, through X11, see other windows and
-  keystrokes. Install only trusted dependencies, and bind web bridges (rosbridge,
-  foxglove_bridge) to `127.0.0.1`.
+  keystrokes. Install only trusted dependencies, and bind web servers (such as the Flask
+  dashboard) to `127.0.0.1`.
 
 ## Development
 
@@ -87,7 +99,7 @@ cd ~/warehouse_ws/src/ros2-warehouse-amr && pre-commit install
 | Path | Contents |
 |---|---|
 | `warehouse_bringup/` | Top-level launch files and configuration |
-| `docs/` | Project plan and architecture decision records |
+| `docs/` | Project status, phase reports, project plan and architecture decision records |
 | `.devcontainer/` | Development container (default and headless configurations) |
 | `.github/` | CI workflow, Dependabot, PR template |
 
