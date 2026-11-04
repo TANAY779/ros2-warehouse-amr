@@ -3,6 +3,11 @@ project(warehouse_bringup)
 
 find_package(ament_cmake REQUIRED)
 
+install(
+  DIRECTORY launch rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # ament_lint_auto skips a missing linter silently; make a missing formatter fail loudly.
