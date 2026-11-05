@@ -15,6 +15,7 @@ includes them.
 | `launch/gazebo.launch.py` | World scope: starts `gz sim` with a world (`world`, `headless` arguments) and bridges `/clock` once per world |
 | `launch/spawn_robot.launch.py` | Robot scope: spawns a robot from its `robot_description` topic (`ros_gz_sim create`) and starts its bridge. Include it inside the robot's namespace |
 | `config/robot_bridge.yaml` | The topics bridged per robot: `scan` (SENSOR_DATA QoS) and `ground_truth/odom` |
+| `test/test_gazebo_config.py` | pytest without rendering (it runs in CI): the systems of every world, the bridged topics against the robot description, the caster friction after Gazebo's URDF conversion ([Tests](#tests)) |
 
 ## Systems in the world
 
@@ -71,3 +72,29 @@ ros2 launch warehouse_gazebo gazebo.launch.py headless:=true          # server o
 `headless:=true` runs only the server, with `--headless-rendering`: the scanner still renders
 through EGL without a display (fine on an Intel iGPU; the CI runners have no GPU, so CI skips the
 Gazebo tests). Set `GZ_PARTITION` to keep two simulations on one machine apart.
+
+## Tests
+
+CI cannot render the scanner, so it skips the Gazebo launch test (`warehouse_system_tests`).
+Gazebo itself does not catch mistakes in these files early: `gz sdf -k` calls a world with a
+misspelt system name `Valid.`, a bridge entry for a gz topic that nothing publishes simply
+bridges nothing, and the bridge skips an entry with a misspelt ROS type after only a warning.
+`test/test_gazebo_config.py` therefore reads the installed files, without starting Gazebo, and
+checks that:
+
+- every world in `worlds/` loads the five systems above, with their class names, and renders
+  with `ogre2`;
+- every gz topic in `config/robot_bridge.yaml`, expanded in `/robot1` the way the bridge expands
+  it, is a topic the robot description publishes, with the message type it carries. For ground
+  truth that includes loading `gz-sim-odometry-publisher-system` under its exact filename;
+- each bridge entry uses the same relative name on the ROS side and the ROS type that matches
+  its gz type (`sensor_msgs/msg/LaserScan` for a scan, not the `Range` the bridge would also
+  accept), and `scan` uses SENSOR_DATA QoS;
+- after Gazebo's own URDF-to-SDF conversion (`gz sdf -p`, the conversion that spawning does),
+  both casters still have friction 0.
+
+```bash
+colcon test --packages-select warehouse_gazebo && colcon test-result --verbose
+```
+
+It runs in a few seconds and needs no GPU or display, so every pull request runs it.

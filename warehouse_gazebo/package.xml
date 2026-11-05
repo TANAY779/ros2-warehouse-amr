@@ -22,8 +22,20 @@
   <exec_depend>gz_ros2_control</exec_depend>
 
   <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_index_python</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+  <!-- expand_topic_name: the rule the bridge uses for relative gz topic names -->
+  <test_depend>rclpy</test_depend>
+  <!-- The sdf command of `gz sdf -p` (Gazebo's URDF-to-SDF conversion); gz itself comes
+       from gz_tools_vendor above -->
+  <test_depend>sdformat_vendor</test_depend>
+  <!-- The robot whose gz topics and caster friction the test checks -->
+  <test_depend>warehouse_description</test_depend>
+  <test_depend>xacro</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
