@@ -46,9 +46,9 @@ TF, ros2_control, QoS or sim time, the
 | | 4c | Operator dashboard v1 (Flask): overview, orders, live map, live updates | planned |
 | | 5 | Battery, autonomous docking, diagnostics | planned |
 | | 6 | Core hardening and the `v1.0.0` release | planned |
-| M2 Perception (`v2.0.0`) | 7 | ArUco fiducial perception (shelf and dock tags) | planned |
+| M2 Perception (`v2.0.0`) | 7 | ArUco fiducial perception (tote and dock tags) | planned |
 | | 8 | Inventory patrol and discrepancy reports | planned |
-| | 8b (optional) | Learned ML/DL perception, trained on Google Colab | planned (optional; research paused) |
+| | 8b (optional) | Learned ML/DL perception, trained on Google Colab | planned (optional; research done, [design](PERCEPTION.md#5-method-2-learned-tote-detection)) |
 | M3 Fleet (`v3.0.0`) | 9 | Multi-robot bring-up | planned |
 | | 10 | Fleet manager v1, greedy task allocation | planned |
 | | 11 | Auction allocation and aisle traffic control | planned |
@@ -357,7 +357,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-02 | Simulation only, no hardware | No robot available; ros2_control keeps the stack hardware-ready | adopted | Plan, assumption A1 |
 | 2026-11-02 | Our own custom robot (a tote-carrying AMR), refined in revisions across phases | Biggest learning payoff (URDF, ros2_control, sensors); a TurtleBot would read as a tutorial | adopted | Plan, decision D1 |
 | 2026-11-03 | Split Phase 4 into 4a (interfaces + BT task executor), 4b (order manager, generator, KPIs), 4c (dashboard v1, minimal) | Phase 4 was too large for one PR; `v1.0.0` ships with the dashboard | adopted | Plan v2 |
-| 2026-11-03 | ML/DL perception research paused by the maintainer (3 of 4 topics done) | Focus on the core stack first | paused | Plan v2, Phase 8b |
+| 2026-11-03 | ML/DL perception research paused by the maintainer (3 of 4 topics done) | Focus on the core stack first | replaced (resumed 2026-11-06) | Plan v2, Phase 8b |
 | 2026-11-03 | Repository named `ros2-warehouse-amr` (was `warehouse_amr`); ROS package names keep the `warehouse_` prefix | Descriptive, searchable name for a public repo | adopted | README |
 | 2026-11-03 | Tags: `phase-N` marker per finished phase; releases `v1.0.0`, `v2.0.0`, `v3.0.0` at milestones; packages stay at `0.1.0` until `v1.0.0` | A per-phase version tag (`v0.N.0`) would make versions go backwards after `v1.0.0` (Phase 7 would be `v0.7.0`) | adopted (replaces per-phase version tags) | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | 2026-11-03 | Environment notes: the local workspace was cleaned of files from earlier experiments; local shells may source other workspaces, so CI and the dev container are the clean reference | A clean, reproducible reference without disturbing other local work | adopted | [Dev containers](#dev-containers-gui-and-headless) |
@@ -391,6 +391,8 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | Automatic checks paused: CI runs only by hand, `main` needs a pull request but no passing checks, the pre-commit hook is optional, and a plain `colcon build` builds without tests (`colcon.meta` at the workspace root passes `-DBUILD_TESTING=OFF` to every package) | The owner prefers to verify changes by building and running them while the project is under heavy development; the tests stay in the repository for later | adopted (until resumed) | [ADR-004](decisions/ADR-004-ci-pipeline.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-test) |
 | 2026-11-05 | The owner's design review of Phase 1: the 2D lidar becomes a 360° puck standing on the deck near the front edge (scan plane 0.34 m, 720 rays 0.5° apart) instead of a front-left corner scanner in a groove round the body (scan plane 0.20 m, 264°), accepting that a loaded tote blocks much of its rear view. The body is restyled in safety yellow and charcoal from simple, clearly separate parts (skirt, panels, bumpers, deck top, tote tray, emergency stop, status light); the status light's colour is one property, which Phase 9 turns into a per-robot argument | A simpler, familiar sensor layout and a robot that reads as a warehouse AMR. Found while building it: RViz draws all visuals of a link in one colour, so each coloured part is its own link. Open for Phase 3: what the puck cannot see (below 0.34 m, behind a tote), and when a tote is modelled on the robot (no phase does it yet) | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md), plan §2.6 (Rev B, Rev C) |
 | 2026-11-05 | The repository root is now the colcon workspace: the repository is cloned as `~/warehouse_ws`, packages moved to `src/`, `.gitignore` keeps `build/`, `install/` and `log/` out; CI, the dev container, README, CONTRIBUTING and the reports follow. History is kept (the move is one rename commit) | The owner wants one repository at the workspace root that VS Code finds directly; GitHub still finds the README, licence and `.github/` at the root | adopted | [ADR-006](decisions/ADR-006-workspace-root-repository.md) |
+| 2026-11-06 | ML/DL perception research resumed and finished: use cases, synthetic data from Gazebo, training on Colab, CPU inference and ROS 2 integration, each reviewed against the current robot and layout | The owner asked to resume it; the report recommends one class `tote`, D-FINE-N run on the CPU from C++, and a new `UNLABELED` discrepancy | done | [ML report](research/ML_PERCEPTION.md) |
+| 2026-11-06 | Perception design document: the ArUco method (Phases 7-8) and the learned detector (8b) in one design, from the ArUco research, its skeptical review and the ML report, then two more reviews. It proposes 29 changes to the plan (among them: choose the IPPE pose that fits best, never the one nearest the stored dock yaw; a dock tag tilted 20°; M2 re-estimated at about 75-119 h) and asks five questions (O3-O7); the plan is not edited until they are answered | The review found that the plan's rule (pick the IPPE solution nearest the database dock yaw) makes a dock rotated by 5° worse; the owner wants an in-depth reference before Phase 7 | in review | [Perception design](PERCEPTION.md) |
 
 ## Planned features
 
@@ -409,7 +411,7 @@ Short list per milestone; details and acceptance criteria are in the plan. All *
   - Simulated battery, autonomous docking and recharging, diagnostics (Phase 5).
   - Hardening and the `v1.0.0` release with a recorded demo (Phase 6).
 - **M2 Perception (`v2.0.0`)**
-  - ArUco tags on shelves and docks, detected by robot cameras (Phase 7).
+  - ArUco tags on totes and docks, detected by robot cameras (Phase 7).
   - Inventory patrol with discrepancy reports (Phase 8).
   - Optional: learned detector trained on Google Colab, deployed as an ONNX model (Phase 8b).
 - **M3 Fleet (`v3.0.0`)**
