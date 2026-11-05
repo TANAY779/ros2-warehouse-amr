@@ -9,7 +9,7 @@ demo starts with `ros2 launch warehouse_bringup ...`.
 |---|---|
 | `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only), the robot (`robot.launch.py`) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
 | `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners and the EKF. Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
-| `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in |
+| `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
 
 ## Running
 

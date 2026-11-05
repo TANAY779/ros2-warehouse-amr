@@ -52,9 +52,31 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
+    # The visual-only parts (each coloured part is a link of its own) start hidden, so the view
+    # shows the frames that matter; tick them under TF > Frames to see them. New frames are
+    # shown by default.
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
+      Frames:
+        emergency_stop_link:
+          Value: false
+        front_bumper_link:
+          Value: false
+        left_wheel_hub_link:
+          Value: false
+        lidar_front_mount_link:
+          Value: false
+        rear_bumper_link:
+          Value: false
+        right_wheel_hub_link:
+          Value: false
+        shell_link:
+          Value: false
+        status_light_link:
+          Value: false
+        tote_tray_link:
+          Value: false
       Marker Scale: 0.4
       Name: TF
       Show Arrows: true
