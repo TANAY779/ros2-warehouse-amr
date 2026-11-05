@@ -9,7 +9,7 @@
   },
   "remoteUser": "ros",
   "updateRemoteUserUID": true,
-  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ros/ws/src/ros2-warehouse-amr,type=bind",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ros/ws,type=bind",
   "workspaceFolder": "/home/ros/ws",
   "runArgs": [
     "--network=host",
@@ -22,7 +22,7 @@
     "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
     "AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS": "1"
   },
-  "postCreateCommand": "bash src/ros2-warehouse-amr/.devcontainer/post-create.sh",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "mkdir -p -m 700 /tmp/runtime-ros",
   "customizations": {
     "vscode": {
@@ -38,8 +38,7 @@
         "C_Cpp.clang_format_style": "file",
         "C_Cpp.clang_format_path": "/usr/bin/clang-format",
         "flake8.importStrategy": "fromEnvironment",
-        "flake8.cwd": "${workspaceFolder}/src/ros2-warehouse-amr",
-        "git.repositoryScanMaxDepth": 2,
+        "flake8.cwd": "${workspaceFolder}",
         "files.insertFinalNewline": true,
         "files.trimTrailingWhitespace": true
       }

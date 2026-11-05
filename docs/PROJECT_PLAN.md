@@ -254,32 +254,34 @@ Backend-for-frontend: the browser speaks only HTTP/JSON and Server-Sent Events t
 
 ## 3. Repository & package layout
 
-**Decision (D9, ADR-002):** one multi-package repo, `github.com/TANAY779/ros2-warehouse-amr`, cloned into `~/warehouse_ws/src/ros2-warehouse-amr`. `build/ install/ log/` stay outside the repo. Third-party sources without a Jazzy binary go next to it via `vcs import --input src/ros2-warehouse-amr/dependencies.repos src`. CI checks it out into `src/ros2-warehouse-amr` of a fresh workspace (ADR-004).
+**Decision (D9, ADR-006, which replaced ADR-002 on 2026-11-05):** one multi-package repo, `github.com/TANAY779/ros2-warehouse-amr`, whose root is the colcon workspace: clone it as `~/warehouse_ws`, packages live in `src/`, and `.gitignore` keeps `build/ install/ log/` out. Third-party sources without a Jazzy binary go next to the packages via `vcs import --input dependencies.repos src`. CI checks it out and builds at the root (ADR-004).
 
 ```
-ros2-warehouse-amr/
+ros2-warehouse-amr/  (= ~/warehouse_ws, the colcon workspace)
 ├── .github/                  workflows/ci.yml (lint + build & test), dependabot.yml, PR template; sim-smoke.yml [P6]
 ├── .devcontainer/            Dockerfile (osrf/ros:jazzy-desktop-full), devcontainer.json (GUI), headless/, post-create.sh
 ├── docs/                     PROJECT_PLAN.md, PROJECT_STATUS.md, phase-reports/, decisions/ (ADR-000 template, ADR-001..005), architecture.md [P6], media/ [P1+]
 ├── .pre-commit-config.yaml  .clang-format  .flake8  .yamllint  .editorconfig  .gitattributes  .gitignore
 ├── README.md  CONTRIBUTING.md  LICENSE  dependencies.repos (empty)
-├── warehouse_bringup/        package since P0; top-level launch, rviz/ configs [P1+]; per-env config [P6]
-├── warehouse_description/    robot.yaml → xacro, ros2_control (gz|mock|real), controllers.yaml; robot_config.py [P1, P2]
-├── warehouse_gazebo/         worlds, models (shelf, dock, tote, tags), bridge config, spawn launch [P1-2]
-├── warehouse_navigation/     EKF [P1]; AMCL, maps [P2]; Nav2 params + topic map, masks, launch [P3]; docking [P5]
-├── warehouse_system_tests/   launch_testing: rates/frames [P1], localization eval [P2], nav scenarios [P3+]
-├── warehouse_layout/         (py) layout.yaml + generators: world, masks, registry, tags, route graph, dock DB [P2+]
-├── warehouse_interfaces/     msgs/srvs/actions                                            [P4a+]
-├── warehouse_task_executor/  (cpp) ExecuteTask server + BT.CPP plugin nodes                [P4a]
-├── warehouse_order_manager/  (cpp) order lifecycle, FulfillOrder, allocator plugin API     [P4b]
-├── warehouse_ops/            (py) nav benchmark [P3], order_generator, kpi_tracker [P4b], scenario_runner [P5], bag profiles, PlotJuggler layout [P6]
-├── warehouse_dashboard/      (py) Flask operator UI: rclpy gateway, SSE, vendored static assets [P4c+]
-├── warehouse_battery/        (cpp) battery_sim lifecycle node                              [P5]
-├── warehouse_perception/     (cpp) aruco_detector [P7], slot_projector lib [P8], tote_detector [8b, opt.]
-├── warehouse_inventory/      (cpp) inventory_manager, markers                              [P8]
-├── warehouse_ml/             (py, opt.) dataset capture, Colab notebook, model fetch        [8b]
-├── warehouse_fleet_manager/  (cpp) registry, Greedy/Auction allocators, traffic_manager      [P10-11]
-└── warehouse_manipulation/   + warehouse_moveit_config (stretch)                           [P13]
+├── build/ install/ log/      colcon output, git-ignored
+└── src/
+    ├── warehouse_bringup/        package since P0; top-level launch, rviz/ configs [P1+]; per-env config [P6]
+    ├── warehouse_description/    robot.yaml → xacro, ros2_control (gz|mock|real), controllers.yaml; robot_config.py [P1, P2]
+    ├── warehouse_gazebo/         worlds, models (shelf, dock, tote, tags), bridge config, spawn launch [P1-2]
+    ├── warehouse_navigation/     EKF [P1]; AMCL, maps [P2]; Nav2 params + topic map, masks, launch [P3]; docking [P5]
+    ├── warehouse_system_tests/   launch_testing: rates/frames [P1], localization eval [P2], nav scenarios [P3+]
+    ├── warehouse_layout/         (py) layout.yaml + generators: world, masks, registry, tags, route graph, dock DB [P2+]
+    ├── warehouse_interfaces/     msgs/srvs/actions                                            [P4a+]
+    ├── warehouse_task_executor/  (cpp) ExecuteTask server + BT.CPP plugin nodes                [P4a]
+    ├── warehouse_order_manager/  (cpp) order lifecycle, FulfillOrder, allocator plugin API     [P4b]
+    ├── warehouse_ops/            (py) nav benchmark [P3], order_generator, kpi_tracker [P4b], scenario_runner [P5], bag profiles, PlotJuggler layout [P6]
+    ├── warehouse_dashboard/      (py) Flask operator UI: rclpy gateway, SSE, vendored static assets [P4c+]
+    ├── warehouse_battery/        (cpp) battery_sim lifecycle node                              [P5]
+    ├── warehouse_perception/     (cpp) aruco_detector [P7], slot_projector lib [P8], tote_detector [8b, opt.]
+    ├── warehouse_inventory/      (cpp) inventory_manager, markers                              [P8]
+    ├── warehouse_ml/             (py, opt.) dataset capture, Colab notebook, model fetch        [8b]
+    ├── warehouse_fleet_manager/  (cpp) registry, Greedy/Auction allocators, traffic_manager      [P10-11]
+    └── warehouse_manipulation/   + warehouse_moveit_config (stretch)                           [P13]
 ```
 Packages are created only in the phase that needs them, following the new-package checklist in CONTRIBUTING.md.
 
