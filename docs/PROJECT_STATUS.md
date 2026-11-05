@@ -6,26 +6,39 @@ next. Every pull request that adds or changes a feature updates this file (see
 finished phase, written to teach, see [phase-reports/](phase-reports/).
 
 **Where to read more:** the learning reports in [phase-reports/](phase-reports/) (start with
-[Phase 0](phase-reports/phase-00-foundation.md)); the phased plan with architecture and
+[Phase 0](phase-reports/phase-00-foundation.md), then
+[Phase 1](phase-reports/phase-01-robot-description.md)); the phased plan with architecture and
 acceptance criteria in [PROJECT_PLAN.md](PROJECT_PLAN.md); the decision records in
 [decisions/](decisions/). New to terms such as ament_lint, rosdep, colcon, ruleset or ADR? See
-the [glossary in the Phase 0 report](phase-reports/phase-00-foundation.md#glossary).
+the [glossary in the Phase 0 report](phase-reports/phase-00-foundation.md#glossary); for URDF,
+TF, ros2_control, QoS or sim time, the
+[glossary in the Phase 1 report](phase-reports/phase-01-robot-description.md#glossary).
 
 ## At a glance
 
-- **Current phase (as of 2026-11-04):** Phase 0 (repository foundation) is finished. The
-  revised project plan (v2) is adopted, and Phase 1 (robot description and first drive in
-  Gazebo) is next.
-- **Last updated:** 2026-11-04
-- **What runs today:** tooling only. The repository builds and tests in CI, the automatic
-  checks (lint gates) work, and the dev container works. No robot, world or node exists yet.
+- **Current phase (as of 2026-11-05):** Phase 1 (robot description and first drive in
+  Gazebo) is **done, pending its pull request** from the branch `phase-1-robot-description`.
+  Every automated acceptance check passed and the
+  [learning report](phase-reports/phase-01-robot-description.md) is written. The owner's design
+  review then gave the robot a 360° lidar puck on its deck and a new look (2026-11-05); the scan,
+  frame and drive checks were re-run by hand, the test suite runs again when checks resume.
+  Still open: the demo GIF (recorded by the maintainer, report exercise 7), the merge, and the
+  `phase-1` tag.
+  Phase 2 (warehouse world, mapping, localization) is next.
+- **Last updated:** 2026-11-05
+- **What runs today** (on the Phase 1 branch): our own robot (revision B, safety yellow and
+  charcoal) drives by keyboard in an empty Gazebo world through ros2_control, inside the
+  `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
+  without a simulator, which CI tests on every pull request. Measured in Gazebo: sensor rates
+  10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
+  10 m, EKF within 0.09-0.42 %.
 
 ### Progress
 
 | Milestone | Phase | Scope | Status |
 |---|---|---|---|
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` not yet created (as of 2026-11-04) |
-| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | next |
+| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done, pending PR** ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending (as of 2026-11-05) |
 | | 2 | Warehouse world generated from a layout file, mapping, localization | planned |
 | | 3 | Navigation with keep-out and speed zones, safety | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
@@ -47,8 +60,12 @@ scope and acceptance criteria.
 
 ## Features
 
-Only features that exist on `main` are listed. Commands assume the standard layout: the
-colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/ros2-warehouse-amr`.
+Only features that exist on `main` are listed, except the Phase 1 entries (robot description,
+Gazebo, EKF, bring-up, teleoperation, system tests), which are on the branch
+`phase-1-robot-description` until its pull request merges. Commands assume the
+repository is cloned as `~/warehouse_ws` (its root is the colcon workspace, ADR-006) and a shell with only ROS 2 Jazzy and this workspace
+sourced (the [Phase 1 report](phase-reports/phase-01-robot-description.md#before-you-start)
+has a `wh_shell` function for that).
 
 ### Repository skeleton
 
@@ -60,34 +77,147 @@ colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/
   fixtures under `test/data/` are allowed); `dependencies.repos` lists source dependencies
   that have no Jazzy binary (none yet) for `vcs import`.
 - **How to use it:** nothing to run; editors and git pick these files up automatically. To
-  import third-party sources: `vcs import --input src/ros2-warehouse-amr/dependencies.repos src`
+  import third-party sources: `vcs import --input dependencies.repos src`
   from the workspace root.
 - **Where it lives:** `LICENSE` (Apache-2.0), `README.md`, `.editorconfig`, `.gitattributes`,
   `.gitignore`, `dependencies.repos`.
 
-### `warehouse_bringup` package and the ament lint gates
+### Robot description (`warehouse_description`, revision B)
 
-- **What it is:** the first ROS 2 package. It will hold the top-level launch files and
-  per-environment configuration (Phase 1 adds `sim.launch.py`). Today it contains only the
-  build and lint setup that every later C++ package copies.
-- **What it does:** `colcon test` runs the `ament_lint` linters on the package: copyright
-  headers, CMake style, `package.xml` schema validation, and (as soon as C++ or Python files
-  exist) clang-format, cpplint, cppcheck, flake8 and pep257. uncrustify is switched off in
-  favour of clang-format, and the build fails loudly if the clang-format linter is missing
-  instead of skipping it.
+- **What it is:** our own tote-carrying AMR ([plan §2.6](PROJECT_PLAN.md#26-robot-design-d1),
+  [ADR-005](decisions/ADR-005-custom-tote-amr.md)), described once in `config/robot.yaml` and
+  turned into URDF by xacro. Revision B: the drivable base (rev A) plus the first sensors.
+- **What it does:** builds the robot for Gazebo (`hardware:=gz`) or for mock hardware without
+  a simulator (`hardware:=mock`; `real` is reserved and refused): a 0.64 x 0.48 m, 35 kg
+  differential-drive base with sphere wheel collisions and frictionless casters, a 360° lidar
+  puck on the deck (`gpu_lidar`, scan plane 0.34 m, 10 Hz) and an IMU (100 Hz) read through
+  ros2_control. The body is safety yellow and charcoal, built from parts that are easy to tell
+  apart: charcoal skirt and deck top, yellow panels, black bumpers, a grey tote tray, a red
+  emergency-stop button and a green status light (its colour is one property, which Phase 9
+  makes per robot).
+  Each coloured part is its own link, so RViz shows its colour too.
+  `config/controllers.yaml` sets up `joint_state_broadcaster`, `diff_drive_controller` (hard
+  limits in both directions of travel, unprefixed frames, no odometry transform) and
+  `imu_sensor_broadcaster`. Every gz topic carries the robot namespace. A pytest checks the
+  URDF (frames, mass, namespaced topics, the lidar's full circle, that nothing but the lidar's
+  head reaches its scan plane, that every part stays inside the outline, one colour per link)
+  and `controllers.yaml` against `robot.yaml`.
+- **How to use it:** the launch files load it. To look at the URDF yourself:
+
+  ```bash
+  xacro $(ros2 pkg prefix warehouse_description)/share/warehouse_description/urdf/robot.urdf.xacro \
+    namespace:=robot1 hardware:=gz > /tmp/robot.urdf
+  check_urdf /tmp/robot.urdf          # prints the link tree
+  ```
+
+- **Where it lives:** `warehouse_description/` (`config/`, `urdf/`, `test/`); the README has
+  the mass budget and the design notes.
+
+### Gazebo world and robot spawning (`warehouse_gazebo`)
+
+- **What it is:** the simulator side: worlds, spawning, and the bridge between Gazebo and ROS
+  topics.
+- **What it does:** `gazebo.launch.py` starts Gazebo Harmonic with a world (headless or with a
+  window) and bridges `/clock` once per world. It runs `gz sim` directly rather than through a
+  shell, so one Ctrl-C (SIGINT) stops it. `spawn_robot.launch.py` spawns a robot from its
+  `robot_description` and bridges its `scan` (sensor-data QoS) and `ground_truth/odom` (for
+  tests only). Phase 1 has one world, `empty`. A pytest checks these files without rendering,
+  so CI runs it: the systems every world loads, the bridge file against the robot
+  description, and the caster friction after Gazebo's own URDF conversion.
+- **How to use it:** normally through `warehouse_bringup`'s `sim.launch.py`. On its own:
+  `ros2 launch warehouse_gazebo gazebo.launch.py headless:=true`.
+- **Where it lives:** `warehouse_gazebo/` (`launch/`, `worlds/empty.sdf`,
+  `config/robot_bridge.yaml`, `test/test_gazebo_config.py`).
+
+### Odometry EKF (`warehouse_navigation`)
+
+- **What it is:** a `robot_localization` extended Kalman filter, the robot's odometry
+  ([ADR-005](decisions/ADR-005-custom-tote-amr.md), plan D3).
+- **What it does:** fuses the wheel odometry (forward speed, the diff drive's zero sideways
+  speed, yaw rate) with the IMU yaw rate, and publishes `odom` and the transform
+  `odom -> base_footprint`. Over a 10 m drive in Gazebo its end point is within 0.09-0.42 % of
+  ground truth (limit 1 %), over a 360° turn within 0.05 % (limit 2 %). The wheel odometry
+  alone is closer (0.01 %): in Gazebo the controller's reported speed reads about 0.2 % high,
+  and the EKF integrates that speed (Phase 1 report, concept 9). On mock hardware the IMU
+  reports no turning, so there the EKF follows straight driving only.
+- **How to use it:** it starts with every robot. Watch it with
+  `ros2 topic echo /robot1/odom --field pose.pose`.
+- **Where it lives:** `warehouse_navigation/config/ekf.yaml`,
+  `warehouse_navigation/launch/ekf.launch.py`. AMCL (Phase 2) and Nav2 (Phase 3) join it here.
+
+### Simulation bring-up and the lint template (`warehouse_bringup`)
+
+- **What it is:** the top-level launch files, the entry point of every demo, and the first ROS
+  2 package, whose build and lint setup every later C++ package copies.
+- **What it does:** `sim.launch.py` starts Gazebo, one robot in its namespace and RViz, and
+  sets `use_sim_time` for all of them; with `hardware:=mock` it runs the same robot stack on
+  mock hardware, without a simulator. `robot.launch.py` is the robot itself:
+  `robot_state_publisher`, the controller manager, the three controllers and the EKF inside
+  `/<namespace>`, with the robot's transforms on `/<namespace>/tf`. It sets `use_sim_time` and
+  an absolute namespace itself, so it also runs on its own next to `gazebo.launch.py` or
+  inside a fleet launch (Phase 9). `colcon test` runs the `ament_lint` linters on every
+  package, with clang-format instead of uncrustify; a missing clang-format linter fails the
+  build instead of being skipped.
 - **How to use it:** from `~/warehouse_ws`:
 
   ```bash
   source /opt/ros/jazzy/setup.bash
   rosdep install --from-paths src --ignore-src -y
-  colcon build --symlink-install
-  colcon test && colcon test-result --verbose
+  colcon build --symlink-install && source install/setup.bash
+  ros2 launch warehouse_bringup sim.launch.py                   # Gazebo + RViz, robot in /robot1
+  ros2 launch warehouse_bringup sim.launch.py headless:=true    # no windows
+  ros2 launch warehouse_bringup sim.launch.py hardware:=mock    # no simulator
+  ros2 control list_controllers -c /robot1/controller_manager   # three controllers, all active
   ```
 
-  Expect `Summary: 5 tests, 0 errors, 0 failures, 0 skipped`.
-- **Where it lives:** `warehouse_bringup/` (`package.xml`, `CMakeLists.txt`, `README.md`);
-  rules in [ADR-003](decisions/ADR-003-formatting-and-linting.md) and the "New packages"
-  section of [CONTRIBUTING.md](../CONTRIBUTING.md).
+  Built with tests (`colcon build --symlink-install --metas /dev/null --cmake-args
+  -DBUILD_TESTING=ON`), `colcon test && colcon test-result --verbose` reported `104 tests, 0
+  errors, 0 failures, 0 skipped` on a machine that can render (70-75 s) before the 2026-11-05
+  design change, which replaces one description test with four (107 in total; not run yet,
+  checks are paused); CI reports the 11 Gazebo launch test cases as skipped.
+- **Where it lives:** `warehouse_bringup/` (`launch/`, `rviz/robot.rviz`, README with every
+  argument and the checks to run by hand); lint rules in
+  [ADR-003](decisions/ADR-003-formatting-and-linting.md) and the "New packages" section of
+  [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+### Keyboard teleoperation
+
+- **What it is:** driving the robot from a terminal with `teleop_twist_keyboard`, the Phase 1
+  demo.
+- **What it does:** publishes `TwistStamped` commands on `/robot1/cmd_vel`, stamped with sim
+  time, so `diff_drive_controller` brakes 0.5 s after the last key (`cmd_vel_timeout`). The
+  controller's hard limits apply whatever teleop asks for (1.2 m/s forward, 0.3 m/s reverse,
+  2 rad/s). Measured: still 0.5 m/s 0.4 s after the last key, braking at 0.5 s, standing by
+  1.0 s.
+- **How to use it:** with the simulation running (`ros2 launch warehouse_bringup
+  sim.launch.py`), in a second terminal:
+
+  ```bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+    --ros-args -r __ns:=/robot1 -p stamped:=true -p use_sim_time:=true
+  ```
+
+  `i` forward, `,` backward, `j`/`l` turn, `k` stop. Leave out `use_sim_time:=true` for
+  `hardware:=mock`. Without it in Gazebo, the wall-clock stamps never look old and the robot
+  keeps driving after you release the key (plan R1).
+- **Where it lives:** `warehouse_bringup/README.md` ("Driving with teleop");
+  `teleop_twist_keyboard` is an exec dependency of `warehouse_bringup`.
+
+### System tests (`warehouse_system_tests`)
+
+- **What it is:** `launch_testing` tests that start the real bring-up and check the running
+  system from the outside, like a user with `ros2` commands.
+- **What it does:** the mock-hardware test (every pull request) checks the controllers, the
+  stamped `cmd_vel`, unprefixed frames, the namespaced TF tree, braking after
+  `cmd_vel_timeout` and braking at the hard limit in both directions. The Gazebo test (local,
+  needs GPU or EGL rendering) adds the Phase 1 acceptance checks: sensor rates, that the
+  scanner sees a target box and never the robot itself, wheel and EKF odometry against ground
+  truth over 10 m and a 360° turn, and a clean shutdown. The robot's numbers come from
+  `robot.yaml` and `controllers.yaml`, never from the tests.
+- **How to use it:** `colcon test --packages-select warehouse_system_tests && colcon
+  test-result --verbose`; skip the Gazebo test with `WAREHOUSE_SKIP_GZ_TESTS=1`, as CI does.
+- **Where it lives:** `warehouse_system_tests/` (`test/`, the shared helpers in
+  `warehouse_system_tests/ros_helpers.py`, README with the list of checks).
 
 ### pre-commit hooks
 
@@ -105,6 +235,9 @@ colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/
 
 ### Continuous integration (GitHub Actions)
 
+- **Status:** paused since 2026-11-05 at the owner's request: the workflow runs only when
+  started by hand (Actions → CI → Run workflow). The description below is how it works when
+  it runs; [ADR-004](decisions/ADR-004-ci-pipeline.md) says how to resume it.
 - **What it is:** a workflow that runs on every pull request, on every push to `main`, and on
   demand.
 - **What it does:** job **Lint (pre-commit)** runs every pre-commit hook on every file; job
@@ -112,7 +245,14 @@ colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/
   the same `vcs import`, `rosdep install`, `colcon build`, `colcon test` and
   `colcon test-result` commands a developer runs, then uploads the logs and test results as
   the `colcon-logs` artifact. Superseded pull request runs are cancelled; every commit on
-  `main` gets its own result. Each job takes about 35-45 s.
+  `main` gets its own result. Since Phase 1 the build-and-test job keeps DDS discovery on the
+  runner (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`) and sets `WAREHOUSE_SKIP_GZ_TESTS=1`: the
+  runners cannot render Gazebo's scanner, so the Gazebo launch tests are reported as skipped
+  while the mock-hardware launch tests and `warehouse_gazebo`'s render-free configuration test
+  run. In Phase 0 each job took about 35-45 s. Phase 1
+  adds Gazebo, ros2_control and RViz to the rosdep install: a local reproduction of the
+  build-and-test job took about 8.5 minutes, 7.8 of them in `rosdep install` (the first run on
+  GitHub comes with the Phase 1 pull request).
 - **How to use it:** open a pull request; both checks appear on it. From a terminal:
   `gh run list --workflow ci.yml`, then `gh run view <run-id>`. To reproduce a failure
   locally, see [ADR-004](decisions/ADR-004-ci-pipeline.md) (Consequences).
@@ -122,12 +262,14 @@ colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/
 ### Branch protection (ruleset "Protect main")
 
 - **What it is:** a GitHub repository ruleset on the default branch.
-- **What it does:** changes reach `main` only through a pull request, and only when both CI
-  checks (`Lint (pre-commit)` and `Build & test (ROS 2 Jazzy)`) pass. Force-pushes and
-  deleting `main` are blocked. No approving review is required (single maintainer).
+- **What it does:** changes reach `main` only through a pull request. Force-pushes and
+  deleting `main` are blocked. While CI is paused (since 2026-11-05) the two CI checks
+  (`Lint (pre-commit)` and `Build & test (ROS 2 Jazzy)`) are not required; the recreation
+  steps below include them for when CI resumes. No approving review is required (single maintainer).
 - **How to use it:** work on a branch, push it, open a PR, merge when green. Inspect the
   rules with `gh api repos/TANAY779/ros2-warehouse-amr/rules/branches/main --jq '.[].type'`
-  (prints `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks`).
+  (prints `deletion`, `non_fast_forward`, `pull_request`; `required_status_checks` too when CI
+  is active).
 - **Where it lives:** GitHub repository settings (Settings → Rules → Rulesets), not in the
   repository. To recreate it (for example on a fork): new branch ruleset named "Protect
   main", enforcement **Active**, no bypass list, target **Default branch**; enable **Restrict
@@ -181,7 +323,7 @@ colcon workspace at `~/warehouse_ws` and this repository at `~/warehouse_ws/src/
   changed decision gets a new ADR that supersedes the old one.
 - **How to use it:** copy `docs/decisions/ADR-000-template.md` to the next number and add a
   row to the index.
-- **Where it lives:** [docs/decisions/](decisions/) (ADR-001 to ADR-004 so far).
+- **Where it lives:** [docs/decisions/](decisions/) (ADR-001 to ADR-005 so far).
 
 ### Contribution workflow and conventions
 
@@ -227,14 +369,36 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-04 | An accidental git repository at the workspace root (created from VS Code; it recorded this repository as an embedded repository) was moved aside; the workspace is not version-controlled | ADR-002: only `src/ros2-warehouse-amr` is a repository | done | [ADR-002](decisions/ADR-002-repository-layout.md) |
 | 2026-11-04 | Keep this living status document plus one learning report per finished phase | The maintainer learns ROS 2 alongside the build | adopted | [Maintenance rules](#how-this-document-is-maintained) |
 | 2026-11-04 | Plan v2: robot design in revisions (Rev A-G), Phases 4a/4b/4c, corrected estimates | Merge the maintainer's answers and the research into one plan | adopted | [Plan](PROJECT_PLAN.md) |
+| 2026-11-05 | Our own tote AMR from one `robot.yaml`, driven through ros2_control (`hardware:=gz\|mock`), odometry from a `robot_localization` EKF | Teaches URDF, ros2_control and sensor fusion; mock hardware lets CI test the robot without Gazebo | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md) |
+| 2026-11-05 | CI's build-and-test job: LOCALHOST discovery for launch tests, Gazebo tests reported as skipped (`WAREHOUSE_SKIP_GZ_TESTS=1`) | The runners cannot render the scanner; the mock-hardware tests still run on every PR | adopted | [ADR-004](decisions/ADR-004-ci-pipeline.md) |
+| 2026-11-05 | `controllers.yaml` sets the reverse acceleration limits explicitly | Found in review: left unset, braking from reverse fell back to the forward acceleration limit (0.8 instead of 1.5 m/s²); the Phase 3 reverse safety field relies on 1.5 | adopted | [warehouse_description](../src/warehouse_description/README.md#design-notes) |
+| 2026-11-05 | The EKF fuses the diff drive's zero sideways speed (vy = 0) | Found in review: unfused, the y variance of `odom` grew without bound (about 4e4 m² after 30 s standing still, 7e5 m² after a minute); robot_localization recommends it | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md), plan D3 |
+| 2026-11-05 | `robot.launch.py` sets `use_sim_time` and an absolute namespace itself | Found in review: run on its own, its nodes ran on wall time and the EKF published nothing; inside another namespace, the ROS side moved away from the absolute gz names | adopted | [warehouse_bringup](../src/warehouse_bringup/README.md) |
+| 2026-11-05 | The scanner self-hit test looks at a box placed 2 m from the robot | Found in review: in the empty world every ray missed, so a blind or misplaced scanner passed | adopted | [warehouse_system_tests](../src/warehouse_system_tests/README.md) |
+| 2026-11-05 | Namespaced from Phase 1: every robot node and topic under `/robot1`, the robot's TF on `/robot1/tf` through `SetRemap`, unprefixed frames, gz topics prefixed with the namespace, `/**/` keys in parameter files | Phase 9 then only adds namespaces; gz topics are global, so unprefixed ones would merge robots; plain parameter keys silently match nothing in a namespace | adopted | Plan D7, R2, R12; [Phase 1 report](phase-reports/phase-01-robot-description.md#10-namespaces-and-the-tf-remaps) |
+| 2026-11-05 | Sphere wheel collisions, frictionless caster spheres, unnamed `<collision>` elements | Cylinder wheels skewed in-place yaw odometry by 8-9 % in the prototype; Gazebo's URDF converter drops `<gazebo reference>` friction from named collisions (found while building) | adopted | Plan R13; [warehouse_description](../src/warehouse_description/README.md#design-notes) |
+| 2026-11-05 | One static bridge file (`robot_bridge.yaml`, relative names, `expand_gz_topic_names: true`) instead of a bridge config generated per robot | `ros_gz_bridge` 1.0.24 expands relative gz names in the bridge's namespace, so one file serves every robot with no generator code | adopted (replaces the plan's per-robot generation) | [warehouse_gazebo](../src/warehouse_gazebo/README.md#topics) |
+| 2026-11-05 | `gazebo.launch.py` starts `gz sim` directly instead of `ros_gz_sim`'s `gz_sim.launch.py` | That file runs Gazebo through a shell, so launch's SIGINT stopped only the shell and orphaned Gazebo servers broke later test runs | adopted | [warehouse_gazebo](../src/warehouse_gazebo/README.md#why-gz-sim-is-started-directly) |
+| 2026-11-05 | Launch tests: each file in its own ROS domain (`run_test_isolated.py`), a private `GZ_PARTITION` for Gazebo, exit code 0 required from every process after one SIGINT, no leftover process; robot numbers read from `robot.yaml` and `controllers.yaml` | Tests must not see each other or other sessions, must catch shutdown leaks, and must not check stale values after a robot revision | adopted | [warehouse_system_tests](../src/warehouse_system_tests/README.md) |
+| 2026-11-05 | Values the plan left open: wheel width 0.04 m, wheel motor effort limit 20 N m, mass split body 32.6 kg / wheels 2 x 1.0 kg / casters 2 x 0.2 kg, sensors massless | URDF needs them; totals (35 kg, centre of mass 0.14 m) match plan §2.6 and are tested | adopted | [warehouse_description](../src/warehouse_description/README.md#mass-budget) |
+| 2026-11-05 | Upstream Gazebo shutdown hang ([gz-sim#4173](https://github.com/gazebosim/gz-sim/issues/4173)) accepted as a known issue: re-run when only the exit-code check fails | About 1 Gazebo test run in 15; not caused by this repository, CI unaffected (it skips the Gazebo test) | adopted (until fixed upstream) | [warehouse_system_tests](../src/warehouse_system_tests/README.md) |
+| 2026-11-05 | Phase 1 built, reviewed, fixed and verified by AI agents (Claude Code): one builder, one review and fix round, three parallel final verifiers (CI reproduction, Gazebo acceptance, code review against the Jazzy sources) | Same practice as Phase 0; every acceptance criterion is measured, and every exercise in the report was run again in a clean shell (except the windowed demo) | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
+| 2026-11-05 | Learning-report exercises and local runs use a clean shell (`wh_shell`: only `/opt/ros/jazzy` and this workspace, `ROS_DOMAIN_ID=42`, LOCALHOST discovery) | The maintainer's normal shell sources other workspaces and discovers across the LAN, which can shadow packages and mix graphs | adopted | [Phase 1 report](phase-reports/phase-01-robot-description.md#before-you-start) |
+| 2026-11-05 | A render-free test of the Gazebo-side files (`warehouse_gazebo/test/test_gazebo_config.py`) runs in every pull request: the systems every world loads, the bridge file against the URDF (gz names expanded the way the bridge expands them, the same relative name and the matching ROS type on the ROS side, the ground-truth system's filename), and the caster friction after `gz sdf -p` | CI skips the Gazebo launch test, so a typo in the world or the bridge file passed CI: `gz sdf -k` accepts a misspelt system, a bridge entry for a topic nothing publishes fails silently, and one with a misspelt ROS type only logs a warning. Each of 19 single mistakes made on purpose fails the test, among them a misspelt system, an absolute scan topic, a misspelt or wrong ROS type, a misspelt plugin filename and a named caster collision | adopted | [warehouse_gazebo](../src/warehouse_gazebo/README.md#tests) |
+| 2026-11-05 | Launch files keep rcutils' default log format: `sim.launch.py` no longer sets `RCUTILS_CONSOLE_OUTPUT_FORMAT`, and plan §6 says to override it only to add fields | The value it set was rcutils' built-in default (`[{severity}] [{time}] [{name}]: {message}`), so it changed nothing, and a reader would copy a no-op | adopted | Plan §6 |
+| 2026-11-05 | Phase 1 acceptance reworded: after the key is released, the controller starts braking when `cmd_vel_timeout` (0.5 s) expires and stands still about 0.33 s later, at the -1.5 m/s² limit | "Stops within `cmd_vel_timeout`" cannot hold with a deceleration limit; the new wording is what the tests measure | adopted | Plan, Phase 1 |
+| 2026-11-05 | Phase 1 polish round before the pull request: the final review's six low findings and a fact-check of the learning report fixed (EKF explanation, RViz's absolute namespace, a discovery wait in the Gazebo test, the plan's references to ADR-005 and the static bridge file); the IMU sensor-name risk is now recorded in plan R2 and stays open until Phase 9. Two verifiers then checked the round, and a second, smaller round fixed what they found (the ROS side of the bridge test, the README status, the EKF speed explanation, two wordings) | Every document agrees with the code and with re-measured numbers before the merge | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
+| 2026-11-05 | Automatic checks paused: CI runs only by hand, `main` needs a pull request but no passing checks, the pre-commit hook is optional, and a plain `colcon build` builds without tests (`colcon.meta` at the workspace root passes `-DBUILD_TESTING=OFF` to every package) | The owner prefers to verify changes by building and running them while the project is under heavy development; the tests stay in the repository for later | adopted (until resumed) | [ADR-004](decisions/ADR-004-ci-pipeline.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-test) |
+| 2026-11-05 | The owner's design review of Phase 1: the 2D lidar becomes a 360° puck standing on the deck near the front edge (scan plane 0.34 m, 720 rays 0.5° apart) instead of a front-left corner scanner in a groove round the body (scan plane 0.20 m, 264°), accepting that a loaded tote blocks much of its rear view. The body is restyled in safety yellow and charcoal from simple, clearly separate parts (skirt, panels, bumpers, deck top, tote tray, emergency stop, status light); the status light's colour is one property, which Phase 9 turns into a per-robot argument | A simpler, familiar sensor layout and a robot that reads as a warehouse AMR. Found while building it: RViz draws all visuals of a link in one colour, so each coloured part is its own link. Open for Phase 3: what the puck cannot see (below 0.34 m, behind a tote), and when a tote is modelled on the robot (no phase does it yet) | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md), plan §2.6 (Rev B, Rev C) |
+| 2026-11-05 | The repository root is now the colcon workspace: the repository is cloned as `~/warehouse_ws`, packages moved to `src/`, `.gitignore` keeps `build/`, `install/` and `log/` out; CI, the dev container, README, CONTRIBUTING and the reports follow. History is kept (the move is one rename commit) | The owner wants one repository at the workspace root that VS Code finds directly; GitHub still finds the README, licence and `.github/` at the root | adopted | [ADR-006](decisions/ADR-006-workspace-root-repository.md) |
 
 ## Planned features
 
 Short list per milestone; details and acceptance criteria are in the plan. All **planned**.
 
 - **M1 Core AMR (`v1.0.0`)**
-  - Custom tote-carrying robot: URDF/xacro description, `ros2_control` differential drive,
-    2D lidar and IMU, EKF odometry fusion, teleoperation in Gazebo (Phase 1).
+  - Phase 1's demo GIF: teleop with the RViz sensor view, recorded by the maintainer (steps in
+    [exercise 7 of the Phase 1 report](phase-reports/phase-01-robot-description.md#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
   - Warehouse world generated from a layout file; SLAM mapping and AMCL localization
     (Phase 2).
   - Nav2 navigation with keep-out and speed zones and a collision monitor (Phase 3).

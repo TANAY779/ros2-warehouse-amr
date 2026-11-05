@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<!--
+  Warehouse tote AMR, revision B (docs/PROJECT_PLAN.md §2.6): a diff-drive base in safety
+  yellow and charcoal with a tote tray on its deck, a 360 degree lidar puck at the front of the
+  deck and an IMU.
+
+  Files, with one macro per part (each part with its own colour is its own link,
+  materials.xacro):
+    base.xacro    base_footprint, base_link: the charcoal chassis, the collision box, the inertia
+    body.xacro    the chassis visuals, the yellow shell and the front and rear bumpers
+    deck.xacro    the tote tray, the emergency-stop button and the status light
+    drive.xacro   the wheels (tyre and hub) and the casters
+    lidar.xacro   the lidar puck and its gz gpu_lidar
+    imu.xacro     the IMU and its gz imu sensor
+
+  Arguments:
+    namespace  the robot's ROS namespace, for example robot1 (with or without slashes).
+               It prefixes every gz transport topic and the controller manager, because
+               gz topics are global (plan R12). Frames are never prefixed (plan D7).
+    hardware   gz    Gazebo through gz_ros2_control (default)
+               mock  mock_components/GenericSystem, no simulator (CI)
+               real  reserved for a future SystemInterface: stops with an error
+
+  Build by hand:
+    xacro robot.urdf.xacro namespace:=robot1 hardware:=gz > /tmp/robot.urdf
+    check_urdf /tmp/robot.urdf
+-->
+<robot name="warehouse_amr" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="namespace" default=""/>
+  <xacro:arg name="hardware" default="gz"/>
+
+  <xacro:property name="hardware" value="$(arg hardware)"/>
+  <xacro:if value="${hardware == 'real'}">
+    ${xacro.fatal('hardware:=real is reserved for a future warehouse_hardware SystemInterface (plan A1). Use hardware:=gz or hardware:=mock.')}
+  </xacro:if>
+  <xacro:unless value="${hardware in ('gz', 'mock', 'real')}">
+    ${xacro.fatal('Unknown hardware:=' + hardware + '. Use hardware:=gz or hardware:=mock.')}
+  </xacro:unless>
+
+  <xacro:property name="namespace" value="${xacro.arg('namespace').strip('/')}"/>
+  <!-- /robot1 for namespace robot1; empty without a namespace. -->
+  <xacro:property name="gz_topic_prefix" value="${'/' + namespace if namespace else ''}"/>
+
+  <!-- Every dimension comes from robot.yaml, the single source of the geometry (plan D1). -->
+  <xacro:property name="robot_yaml" value="$(find warehouse_description)/config/robot.yaml"/>
+  <xacro:property name="robot" value="${xacro.load_yaml(robot_yaml)}"/>
+  <!-- base_link sits on the drive axle: a height above the floor h is at z = h - axle_height
+       in base_link. -->
+  <xacro:property name="axle_height" value="${robot.drive.wheel_radius}"/>
+
+  <xacro:include filename="$(find warehouse_description)/urdf/inertia.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/materials.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/base.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/body.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/deck.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/drive.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/lidar.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/imu.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/ros2_control.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/gazebo.xacro"/>
+
+  <xacro:base/>
+  <xacro:shell/>
+  <xacro:bumper position="front" reflect="1"/>
+  <xacro:bumper position="rear" reflect="-1"/>
+  <xacro:tote_tray/>
+  <xacro:emergency_stop/>
+  <xacro:status_light/>
+  <xacro:drive/>
+  <xacro:lidar_2d name="lidar_front" config="${robot.lidar_front}" topic="scan"
+                  mount_height="${robot.body.deck_height}"/>
+  <xacro:imu/>
+  <xacro:robot_ros2_control/>
+  <xacro:if value="${hardware == 'gz'}">
+    <xacro:gazebo_ground_truth/>
+  </xacro:if>
+
+</robot>

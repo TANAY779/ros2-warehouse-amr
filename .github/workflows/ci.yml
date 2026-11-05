@@ -3,10 +3,11 @@
 # (see docs/decisions/ADR-004-ci-pipeline.md).
 name: CI
 
+# Paused on 2026-11-05 at the owner's request while the project is under heavy development:
+# the workflow runs only when started by hand (Actions -> CI -> Run workflow). To resume it,
+# restore the push (branches: [main]) and pull_request triggers, and add the two job names
+# back as required checks of the "Protect main" ruleset (ADR-004).
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -53,17 +54,23 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       # ament_cppcheck silently skips cppcheck 2.x unless this is set (ADR-003).
       AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS: "1"
+      # Launch tests talk over DDS. Keep discovery on this machine, like the dev containers
+      # (ADR-004); each test file gets its own ROS_DOMAIN_ID from domain_coordinator.
+      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+      # Gazebo's rendering sensors need a GPU or EGL, which the runners lack: report the
+      # Gazebo launch tests as skipped (src/warehouse_system_tests/README.md). The mock-hardware
+      # launch tests still run.
+      WAREHOUSE_SKIP_GZ_TESTS: "1"
     defaults:
       run:
         shell: bash
     steps:
-      - name: Check out into a colcon workspace
+      - name: Check out (the repository root is the colcon workspace)
         uses: actions/checkout@v7
         with:
-          path: src/ros2-warehouse-amr
           persist-credentials: false
       - name: Import third-party sources
-        run: vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+        run: vcs import --input dependencies.repos src
       - name: Install dependencies with rosdep
         run: |
           apt-get update
@@ -72,7 +79,8 @@ jobs:
       - name: Build
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon build --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          # --metas /dev/null skips colcon.meta, which turns tests off for local builds.
+          colcon build --metas /dev/null --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
       - name: Test
         run: |
           source /opt/ros/jazzy/setup.bash

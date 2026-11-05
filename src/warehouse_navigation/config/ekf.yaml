@@ -1,0 +1,50 @@
+# robot_localization EKF of the warehouse AMR (plan D3, Phase 1).
+#
+# Fuses the wheel odometry twist (forward speed, sideways speed and yaw rate) with the IMU
+# yaw rate and publishes the result on odom (remapped from odometry/filtered in
+# ekf.launch.py) and as the odom -> base_footprint transform. Nothing else publishes that
+# transform: the diff drive controller runs with enable_odom_tf: false (plan R5).
+#
+# The IMU orientation is NOT fused: Gazebo reports the true orientation without noise, and
+# fusing it would make the localization look better than a real robot could (plan D3).
+/**/ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0          # Hz, the rate of odom/wheel
+    sensor_timeout: 0.1      # s without input before the filter only predicts
+    two_d_mode: true         # planar robot: z, roll and pitch stay zero
+    publish_tf: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom        # continuous odometry, no jumps (AMCL adds map -> odom in P2)
+
+    # Inputs. Relative names resolve inside the robot namespace (/robot1/odom/wheel).
+    # Each *_config list selects what is fused, in this order:
+    #   x, y, z,  roll, pitch, yaw,  vx, vy, vz,  vroll, vpitch, vyaw,  ax, ay, az
+    #
+    # odom/wheel: the forward speed vx, the sideways speed vy and the yaw rate. A diff drive
+    # cannot slide sideways, so the controller always reports vy = 0. Fusing that zero is
+    # a real measurement: without it nothing observes vy, and the y variance of the output
+    # grows without bound even while the robot stands still (robot_localization's
+    # configuration guide recommends it for nonholonomic robots).
+    odom0: odom/wheel
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true, true, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+
+    imu0: imu
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 20      # 100 Hz input
+    # Only matters when accelerations are fused (they are not); stated so a later change
+    # to imu0_config does not double-count gravity.
+    imu0_remove_gravitational_acceleration: true
+
+    print_diagnostics: true

@@ -1,0 +1,123 @@
+<?xml version="1.0"?>
+<!--
+  2D lidar puck, simulated with a gz gpu_lidar.
+
+  Params:
+    name          link and sensor name prefix: <name>_link, <name>_joint, sensor <name>
+    config        the lidar's block from robot.yaml (position, field of view, rate, noise, size)
+    topic         ROS topic name, relative to the robot namespace (scan)
+    mount_height  height above the floor of the surface the puck stands on (the deck)
+
+  The puck has two parts, each its own link because each has its own colour (materials.xacro):
+    <name>_mount_link  the fixed base, standing on the mount surface
+    <name>_link        the spinning head, centred on the scan plane. Its origin is the scan
+                       plane: the frame of every LaserScan and of the gz sensor.
+
+  gz transport topics are global, so the sensor publishes on <gz_topic_prefix>/<topic>
+  (/robot1/scan). A fixed <topic>scan</topic> would merge the scans of every robot
+  (plan R12). The bridge maps /robot1/scan to the ROS topic scan inside /robot1.
+  gpu_lidar renders the scene, so it sees visuals, not collisions: range_min hides the puck's
+  own head, and everything else on the robot stays below the scan plane (deck.xacro).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="lidar_2d" params="name config topic mount_height">
+    <!-- The head is centred on the scan plane and reaches the top of the housing; the base
+         fills the rest, down to the mount surface. That needs the scan plane in the upper half
+         of the housing. The head's radius is cosmetic. -->
+    <xacro:property name="housing_top" value="${mount_height + config.housing_height}"/>
+    <xacro:property name="head_half_height" value="${housing_top - config.height}"/>
+    <xacro:property name="base_height" value="${config.height - head_half_height - mount_height}"/>
+    <xacro:unless value="${base_height > 0.001 and head_half_height > 0.001}">
+      ${xacro.fatal(name + ': the scan plane (height) must lie in the upper half of the housing, '
+                    + 'between ' + str(round(mount_height + config.housing_height / 2.0, 3))
+                    + ' and ' + str(round(housing_top, 3)) + ' m above the floor')}
+    </xacro:unless>
+    <xacro:property name="head_radius" value="${0.8 * config.housing_radius}"/>
+
+    <joint name="${name}_mount_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}_mount_link"/>
+      <origin xyz="${config.x} ${config.y} ${mount_height - axle_height}"
+              rpy="0 0 ${radians(config.yaw_deg)}"/>
+    </joint>
+
+    <!-- Sensor links have no mass: on a fixed joint Gazebo merges them into the base anyway,
+         and their mass is part of the body budget. -->
+    <link name="${name}_mount_link">
+      <visual name="${name}_base">
+        <origin xyz="0 0 ${base_height / 2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${config.housing_radius}" length="${base_height}"/>
+        </geometry>
+        <material name="puck_graphite"/>
+      </visual>
+    </link>
+
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}_link"/>
+      <origin xyz="${config.x} ${config.y} ${config.height - axle_height}"
+              rpy="0 0 ${radians(config.yaw_deg)}"/>
+    </joint>
+
+    <link name="${name}_link">
+      <visual name="${name}_head">
+        <geometry>
+          <cylinder radius="${head_radius}" length="${2.0 * head_half_height}"/>
+        </geometry>
+        <material name="puck_black"/>
+      </visual>
+    </link>
+
+    <!-- The rays, from -fov/2. A full circle has `samples` rays fov / samples apart, the last
+         one step short of +180 degrees, so -180 and +180 degrees, the same direction, are not
+         measured twice. A narrower field of view runs from -fov/2 to +fov/2, both included. -->
+    <xacro:property name="full_circle" value="${config.fov_deg >= 360.0}"/>
+    <xacro:property name="first_ray" value="${-radians(config.fov_deg) / 2.0}"/>
+    <xacro:property name="ray_step" value="${radians(config.fov_deg) / config.samples}"/>
+    <xacro:property name="last_ray" value="${-first_ray - (ray_step if full_circle else 0.0)}"/>
+
+    <gazebo reference="${name}_link">
+      <sensor name="${name}" type="gpu_lidar">
+        <topic>${gz_topic_prefix}/${topic}</topic>
+        <!-- Header frame of the LaserScan. Without it gz uses a scoped name such as
+             robot1::base_footprint::lidar_front, which is not a TF frame. -->
+        <gz_frame_id>${name}_link</gz_frame_id>
+        <update_rate>${config.update_rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${config.samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${first_ray}</min_angle>
+              <max_angle>${last_ray}</max_angle>
+            </horizontal>
+            <!-- One vertical sample: a single horizontal scan plane. -->
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0.0</min_angle>
+              <max_angle>0.0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <!-- range_min (10 cm) also hides the puck's own head, which surrounds the scan
+                 plane. -->
+            <min>${config.range_min}</min>
+            <max>${config.range_max}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${config.noise_stddev}</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>

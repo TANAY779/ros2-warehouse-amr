@@ -1,0 +1,90 @@
+# ros2_control configuration of the warehouse AMR (plan §2.6, Phase 1).
+#
+# Used twice: gz_ros2_control loads it inside Gazebo (hardware:=gz), and ros2_control_node
+# loads it for mock hardware (hardware:=mock). Every key starts with /**/ so it matches the
+# node in any namespace. A plain `controller_manager:` key matches only /controller_manager;
+# in /robot1 the controllers would silently start with default parameters (plan R2).
+#
+# Numbers that describe the robot must match config/robot.yaml; test/test_description.py
+# checks them.
+
+/**/controller_manager:
+  ros__parameters:
+    # Control loop rate. imu_sensor_broadcaster publishes once per cycle, so this is also
+    # the IMU rate (100 Hz).
+    update_rate: 100
+    # Clamp joint commands to the limits in the robot description (wheel <limit
+    # velocity="22"/>). Jazzy's default is false, which ignores those limits.
+    enforce_command_limits: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
+
+/**/diff_drive_controller:
+  ros__parameters:
+    left_wheel_names: [left_wheel_joint]
+    right_wheel_names: [right_wheel_joint]
+    wheel_separation: 0.40
+    wheel_radius: 0.075
+
+    # Frames are not prefixed: the namespace keeps robots apart, not the frame names
+    # (plan D7). The default (true) would publish robot1/odom and break the EKF.
+    tf_frame_prefix_enable: false
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    # The EKF publishes odom -> base_footprint. Two publishers of one transform make the
+    # robot jump between them (plan R5).
+    enable_odom_tf: false
+    publish_rate: 50.0
+    # Odometry uncertainty, diagonal of [x, y, z, roll, pitch, yaw]. Starting values from the
+    # ros2_controllers docs; the EKF weighs the wheels against the IMU with them. The default
+    # (all zero) would claim perfect odometry.
+    pose_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
+    twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
+
+    # Brake when no command arrived for 0.5 s. The age of a command is computed from its
+    # header stamp, so every publisher must stamp with this controller's clock: sim time in
+    # Gazebo. A wall-clock stamp never times out in simulation (plan R1).
+    cmd_vel_timeout: 0.5
+
+    # Hard limits from robot.yaml, the same in both directions of travel. Each acceleration
+    # limit carries the sign of the velocity change it limits: speeding up forward and braking
+    # from reverse increase v (>= 0); braking from forward and speeding up in reverse decrease
+    # v (<= 0). ros2_controllers 4.x refuses a wrong sign, and the controller does not load.
+    # All four are set on purpose: an unset max_deceleration_reverse falls back to
+    # max_acceleration (0.8 m/s^2), not to the 1.5 m/s^2 braking limit, although the
+    # parameter's description in 4.42 says otherwise.
+    linear:
+      x:
+        max_velocity: 1.2
+        min_velocity: -0.3
+        max_acceleration: 0.8           # speeding up forward
+        max_deceleration: -1.5          # braking from forward
+        max_acceleration_reverse: -0.8  # speeding up in reverse
+        max_deceleration_reverse: 1.5   # braking from reverse
+    # For turning, "reverse" means a negative (clockwise) yaw rate.
+    angular:
+      z:
+        max_velocity: 2.0
+        min_velocity: -2.0
+        max_acceleration: 3.0
+        max_deceleration: -3.0
+        max_acceleration_reverse: -3.0
+        max_deceleration_reverse: 3.0
+
+/**/imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: imu_sensor
+    frame_id: imu_link
+    # Row-major 3x3 covariance matrices = sigma^2 of the gz IMU noise (robot.yaml imu).
+    # The defaults (all zero) would claim a perfect sensor.
+    # Gyro: sigma 0.002 rad/s -> 4.0e-6. Accelerometer: sigma 0.02 m/s^2 -> 4.0e-4.
+    static_covariance_angular_velocity: [4.0e-6, 0.0, 0.0, 0.0, 4.0e-6, 0.0, 0.0, 0.0, 4.0e-6]
+    static_covariance_linear_acceleration: [4.0e-4, 0.0, 0.0, 0.0, 4.0e-4, 0.0, 0.0, 0.0, 4.0e-4]
+    # Gazebo reports the true orientation without any noise. A large covariance tells
+    # consumers not to trust it; the EKF does not fuse it at all (plan D3).
+    static_covariance_orientation: [1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0]
