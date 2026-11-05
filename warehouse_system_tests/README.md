@@ -78,7 +78,9 @@ so CI's build-and-test job sets `WAREHOUSE_SKIP_GZ_TESTS=1` (`.github/workflows/
 Gazebo test's `generate_test_description` is decorated with `unittest.skipIf` on that variable,
 so `launch_testing` reports each of its cases as **skipped** with the reason, and
 `colcon test-result` counts them as skipped (not passed, not missing). Locally the variable is
-unset and the Gazebo tests run. To skip them on purpose:
+unset and the Gazebo tests run. CI still checks the Gazebo-side files without rendering:
+`warehouse_gazebo/test/test_gazebo_config.py` (world systems, bridged topics, caster friction)
+does not depend on the switch. To skip the Gazebo launch test on purpose:
 
 ```bash
 WAREHOUSE_SKIP_GZ_TESTS=1 colcon test --packages-select warehouse_system_tests
