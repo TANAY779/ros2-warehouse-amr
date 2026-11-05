@@ -16,19 +16,30 @@
 Simulate the warehouse AMR: Gazebo (or mock hardware), one robot and RViz.
 
   ros2 launch warehouse_bringup sim.launch.py world:=empty namespace:=robot1
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse   # the generated warehouse
   ros2 launch warehouse_bringup sim.launch.py headless:=true     # no windows
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock     # no simulator (CI)
+
+The robot spawns at x, y and yaw where they are given. The others come from the robot's
+spawn pose in the location registry (warehouse_layout/generated/locations.yaml) when the
+registry was generated for this world, and are 0 in any other world (spawn_pose below).
 
 Drive with teleop, stamped and in sim time (see the package README):
   ros2 run teleop_twist_keyboard teleop_twist_keyboard \
     --ros-args -r __ns:=/robot1 -p stamped:=true -p use_sim_time:=true
 """
 
+import math
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import GroupAction
 from launch.actions import IncludeLaunchDescription
+from launch.actions import LogInfo
 from launch.actions import OpaqueFunction
+from launch.actions import SetLaunchConfiguration
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import AndSubstitution
@@ -41,6 +52,78 @@ from launch_ros.actions import PushROSNamespace
 from launch_ros.actions import SetParameter
 from launch_ros.actions import SetRemap
 from launch_ros.substitutions import FindPackageShare
+import yaml
+
+SPAWN_ARGUMENTS = ('x', 'y', 'yaw')
+
+
+def spawn_pose(world, robot, given, registry):
+    """
+    Return the robot's spawn pose {'x': .., 'y': .., 'yaw': ..} and where it came from.
+
+    world: the world name; robot: the namespace without slashes ('' for none).
+    given: the x, y and yaw launch arguments as strings, '' for one that was not given.
+    registry: the location registry (locations.yaml) as a dict.
+
+    A value that was given wins. The others come from the robot's spawn pose in the registry
+    if the registry was generated for this world, and are 0 otherwise. The registry is in the
+    map frame, which is the Gazebo world frame (plan P2-D2), so its poses go to Gazebo as
+    they are.
+    """
+    pose = {name: 0.0 for name in SPAWN_ARGUMENTS}
+    source = f'the origin, since the registry is for the {registry["world"]} world'
+    if registry['world'] == world and not all(given.values()):
+        spawns = {entry['robot']: (location, entry)
+                  for location, entry in registry['poses'].items() if entry['kind'] == 'spawn'}
+        if robot not in spawns:
+            # Not the origin instead: another robot may stand there.
+            raise ValueError(
+                f'The location registry has no spawn pose for the namespace /{robot} in the '
+                f'{world} world, only for {", ".join(sorted(spawns))}. Use one of those, or '
+                'give x, y and yaw.')
+        location, entry = spawns[robot]
+        pose = {name: float(entry[name]) for name in SPAWN_ARGUMENTS}
+        source = f'its registry pose {location}'
+
+    named = [name for name in SPAWN_ARGUMENTS if given[name]]
+    for name in named:
+        pose[name] = _number(name, given[name])
+    if len(named) == len(SPAWN_ARGUMENTS):
+        source = 'the launch arguments'
+    elif named:
+        source = f'{", ".join(named)} from the launch arguments, the rest: {source}'
+    return pose, source
+
+
+def _number(name, text):
+    """Return a launch argument as a finite float, or raise a ValueError naming it."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value):
+        raise ValueError(f'{name}:={text} is not a number')
+    return value
+
+
+def resolve_spawn_pose(context):
+    """Fill in the x, y and yaw arguments that were not given (see spawn_pose)."""
+    # Mock hardware spawns no model: x, y and yaw stay unused, and no registry is needed.
+    if LaunchConfiguration('hardware').perform(context) != 'gz':
+        return []
+    robot = LaunchConfiguration('namespace').perform(context).strip('/')
+    given = {name: LaunchConfiguration(name).perform(context).strip()
+             for name in SPAWN_ARGUMENTS}
+    # The registry is a plain YAML file installed by warehouse_layout (an exec_depend).
+    registry_file = os.path.join(get_package_share_directory('warehouse_layout'), 'generated',
+                                 'locations.yaml')
+    with open(registry_file) as stream:
+        registry = yaml.safe_load(stream)
+    pose, source = spawn_pose(LaunchConfiguration('world').perform(context), robot, given,
+                              registry)
+    return [SetLaunchConfiguration(name, str(value)) for name, value in pose.items()] + [
+        LogInfo(msg=f'/{robot} spawns at x {pose["x"]:g} m, y {pose["y"]:g} m, '
+                    f'yaw {pose["yaw"]:g} rad ({source})')]
 
 
 def rviz_setup(context):
@@ -66,11 +149,14 @@ def generate_launch_description():
     namespace = LaunchConfiguration('namespace')
     headless = LaunchConfiguration('headless')
     bringup_share = FindPackageShare('warehouse_bringup')
+    spawn_default = ('Default: from the spawn pose of this namespace in the location registry '
+                     'when it is for this world, else 0')
 
     arguments = [
         DeclareLaunchArgument(
             'world', default_value='empty',
-            description='Gazebo world in warehouse_gazebo/worlds, without .sdf'),
+            description='Gazebo world in warehouse_gazebo/worlds, without .sdf: empty or '
+                        'warehouse'),
         DeclareLaunchArgument(
             'namespace', default_value='robot1',
             description='Robot namespace; topics, nodes, TF and gz topics live under it'),
@@ -87,9 +173,11 @@ def generate_launch_description():
             description='true: no Gazebo window and no RViz (sensors still render)'),
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Start RViz (never when headless)'),
-        DeclareLaunchArgument('x', default_value='0.0', description='Spawn x [m]'),
-        DeclareLaunchArgument('y', default_value='0.0', description='Spawn y [m]'),
-        DeclareLaunchArgument('yaw', default_value='0.0', description='Spawn heading [rad]'),
+        # Empty means "not given": resolve_spawn_pose fills them in.
+        DeclareLaunchArgument('x', default_value='', description=f'Spawn x [m]. {spawn_default}'),
+        DeclareLaunchArgument('y', default_value='', description=f'Spawn y [m]. {spawn_default}'),
+        DeclareLaunchArgument('yaw', default_value='',
+                              description=f'Spawn heading [rad]. {spawn_default}'),
     ]
 
     # World scope: the simulator and its /clock (hardware:=gz only).
@@ -124,6 +212,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription(arguments + [
+        # The spawn pose first. A substitution can compute a simple default (use_sim_time's
+        # above), but this one needs Python: read a file of another package and look up the
+        # namespace in it. An OpaqueFunction is a Python function that launch calls once every
+        # argument has its value. It runs before Gazebo starts, so a bad x, y, yaw or namespace
+        # stops the launch before anything runs (an error raised while gz sim is starting
+        # leaves the Gazebo server running).
+        OpaqueFunction(function=resolve_spawn_pose),
         # Every node launched below uses one clock: Gazebo's /clock or the wall clock.
         SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
         gazebo,
