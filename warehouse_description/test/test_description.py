@@ -194,6 +194,8 @@ def test_gz_topics_and_sensor_frames_are_namespaced():
     assert sensors['lidar_front'][1].findtext('topic') == f'/{NAMESPACE}/scan'
 
     control = root.find("gazebo/plugin[@name='gz_ros2_control::GazeboSimROS2ControlPlugin']")
+    # Gazebo loads a system by its filename: a typo only logs an error, and nothing drives.
+    assert control.get('filename') == 'gz_ros2_control-system'
     assert control.findtext('ros/namespace') == f'/{NAMESPACE}'
     assert control.findtext('parameters').endswith('config/controllers.yaml')
 
