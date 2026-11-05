@@ -6,12 +6,14 @@
 # against this file by tests (warehouse_description/test/test_description.py).
 #
 # Units are SI (metres, kilograms, seconds, radians), except keys ending in _deg (degrees).
-# Heights (height, bottom, top, clearance, ...) are measured from the floor. x and y are
+# Heights (clearance, deck_height, height, ...) are measured from the floor. x and y are
 # measured from the robot centre, base_link, which sits on the drive axle. REP-103 axes:
 # x forward, y left, z up.
 revision: B
 
-# Outline of the body seen from above. It is also the Nav2 footprint (Phase 3).
+# Outline of the body seen from above. It is also the Nav2 footprint (Phase 3), so every visible
+# part of the robot stays inside it (test_description.py checks every visual; the wheels'
+# collision spheres stick out 3.5 cm, inside the padding).
 footprint:
   length: 0.64
   width: 0.48
@@ -19,15 +21,17 @@ footprint:
 
 body:
   clearance: 0.03          # floor to the underside of the body
-  deck_height: 0.30        # top of the deck
-  # The 2D scanners look out through a groove that runs around the body. Inside the groove
-  # the body is set back by `inset`, so a corner scanner sees past the body (264 degrees).
-  groove:
-    bottom: 0.15
-    top: 0.25
-    inset: 0.03
+  deck_height: 0.30        # top of the deck: the tote tray and the lidar puck stand on it
   mass: 32.6               # chassis, battery, drive units and electronics
   com_height: 0.145        # battery low in the chassis: 2 cm below the body's centre (0.165)
+
+# Where the one 400 x 300 mm tote rides: on the rear part of the deck, its long side along x.
+# A low rim, the tote tray, marks the place.
+tote_tray:
+  length: 0.40             # inside the rim, along x
+  width: 0.30
+  x: -0.08                 # centre of the tray
+  y: 0.0
 
 drive:
   wheel_radius: 0.075
@@ -58,20 +62,24 @@ limits:
   wheel_max_velocity: 22.0 # rad/s; 1.2 m/s while turning at 2 rad/s needs 21.3 rad/s
   wheel_max_effort: 20.0   # N m per wheel motor (URDF joint limit; accelerating needs about 2 N m)
 
-# Front-left 2D scanner (Rev B). Rev C adds lidar_rear at the rear-right corner.
+# 2D lidar (Rev B): a 360 degree puck standing on the deck near the front edge, TurtleBot
+# style. It scans one horizontal plane all around the robot. Everything else on the deck stays
+# at least 2 cm below that plane, so the scan never hits the robot (0 self-hits). What the puck
+# cannot see: obstacles below the plane, and much of the rear once a tote rides on the tray.
+# Phase 3 decides how to cover them (plan §2.6, Rev C).
 lidar_front:
-  x: 0.29                  # the corner of the body inside the groove (0.32 - 0.03)
-  y: 0.21                  # (0.24 - 0.03)
-  height: 0.20             # scan plane, in the middle of the groove
-  yaw_deg: 45.0            # facing diagonally forward-left
-  fov_deg: 264.0           # keeps the edge rays 3 degrees off the body faces: 0 self-hits
-  samples: 529             # 0.5 degree resolution
+  x: 0.25                  # 7 cm behind the front of the outline
+  y: 0.0
+  height: 0.34             # scan plane, 4 cm above the deck
+  yaw_deg: 0.0             # bearing 0 is straight ahead
+  fov_deg: 360.0           # a full circle
+  samples: 720             # one ray every 0.5 degrees; -180 and +180 degrees are not measured twice
   update_rate: 10.0        # Hz
-  range_min: 0.10
+  range_min: 0.10          # also hides the puck's own head, which surrounds the scan plane
   range_max: 20.0
   noise_stddev: 0.01       # m
-  housing_radius: 0.03     # visual only
-  housing_height: 0.06
+  housing_radius: 0.05     # the puck's base; its spinning head is a little narrower
+  housing_height: 0.06     # from the deck to the top of the head (0.30 to 0.36 m)
 
 # IMU in the centre of the base, read through ros2_control (imu_sensor_broadcaster).
 imu:

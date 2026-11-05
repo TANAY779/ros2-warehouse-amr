@@ -20,11 +20,11 @@ commands would. Unit-level checks live in the packages themselves (for example
 | `joint_state_broadcaster`, `diff_drive_controller`, `imu_sensor_broadcaster` active | ✓ | ✓ |
 | `/robot1/cmd_vel` is `TwistStamped` with `diff_drive_controller` as the only subscriber | ✓ | ✓ |
 | Frames without prefix: `odom/wheel` and `odom` are `odom` → `base_footprint`; `imu` is `imu_link`; `scan` is `lidar_front_link`; ground truth is `map` → `base_footprint` | ✓ (no scan) | ✓ |
-| TF tree in `/robot1/tf` equals the Phase 1 tree of plan §2.4; publishers are `robot_state_publisher` and `ekf_filter_node`; nothing arrives on the global `/tf` or `/tf_static` | ✓ | ✓ |
+| TF tree in `/robot1/tf` equals the Phase 1 tree of plan §2.4 (visual-only parts included); publishers are `robot_state_publisher` and `ekf_filter_node`; nothing arrives on the global `/tf` or `/tf_static` | ✓ | ✓ |
 | A command moves the robot; with no further commands it brakes after `cmd_vel_timeout` (0.5 s) | ✓ | ✓ (stamped in sim time) |
 | Braking keeps to the hard limit (1.5 m/s², ±20 %) from forward (+0.5 m/s) and from full reverse (-0.3 m/s) | ✓ | |
 | Rates from header stamps: `scan` 10 Hz, `imu` 100 Hz, `odom/wheel` 50 Hz, ±10 % | | ✓ |
-| The scanner sees a box 2 m to the left: every return lies on the box (world coordinates via ground truth, within 5σ of the range noise), none inside the robot's outline (self-hits) | | ✓ |
+| The scanner covers its full field of view (`fov_deg`, a full circle) and sees a box 2 m to the left: every return lies on the box (world coordinates via ground truth, within 5σ of the range noise), none inside the robot's outline (self-hits) | | ✓ |
 | Wheel and EKF odometry against ground truth: < 1 % over 10 m straight, < 2 % over a 360° turn | | ✓ |
 | Every process exits with code 0 after one SIGINT | ✓ | ✓ |
 | No process of the test outlives it (orphaned Gazebo server) | | ✓ |

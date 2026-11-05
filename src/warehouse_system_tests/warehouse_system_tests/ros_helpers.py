@@ -50,6 +50,17 @@ EXPECTED_TF_PARENTS = {
     'right_wheel_link': 'base_link',
     'front_caster_link': 'base_link',
     'rear_caster_link': 'base_link',
+    # Visual-only parts: each part with a colour of its own is a link
+    # (warehouse_description/urdf/materials.xacro).
+    'shell_link': 'base_link',
+    'front_bumper_link': 'base_link',
+    'rear_bumper_link': 'base_link',
+    'tote_tray_link': 'base_link',
+    'emergency_stop_link': 'base_link',
+    'status_light_link': 'base_link',
+    'lidar_front_mount_link': 'base_link',
+    'left_wheel_hub_link': 'left_wheel_link',
+    'right_wheel_hub_link': 'right_wheel_link',
 }
 
 

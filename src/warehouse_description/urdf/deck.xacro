@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<!--
+  What stands on the deck, next to the lidar puck (lidar.xacro):
+
+    tote_tray       the grey tote tray: a low rim around the place where the one tote rides
+                    (robot.yaml tote_tray). Its frame is the middle of the tray on the deck,
+                    the place for a tote model.
+    emergency_stop  the red emergency-stop button, at the front-right corner
+    status_light    the status light, at the front-left corner. Its colour is set in
+                    materials.xacro.
+
+  Visuals only, each part its own link (one colour per link, materials.xacro). Each frame sits
+  on the deck surface, so a part's height is simply its height above the deck.
+
+  The lidar scans a plane 4 cm above the deck and gpu_lidar renders visuals, so everything here
+  stays at least 2 cm below that plane, or the lidar would see the robot itself.
+  test_description.py checks it.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Cosmetic sizes and positions. -->
+  <xacro:property name="tray_rim_width" value="0.015"/>
+  <xacro:property name="tray_rim_height" value="0.015"/>
+  <xacro:property name="stop_x" value="0.25"/>
+  <xacro:property name="stop_y" value="-0.18"/>
+  <!-- The stop button is a mushroom: stop_radius is its cap. The status light is a dome: a
+       sphere of light_radius, half sunk into the deck. -->
+  <xacro:property name="stop_radius" value="0.022"/>
+  <xacro:property name="stop_height" value="0.016"/>
+  <xacro:property name="light_x" value="0.25"/>
+  <xacro:property name="light_y" value="0.18"/>
+  <xacro:property name="light_radius" value="0.018"/>
+
+  <!-- A fixed link whose frame sits on the deck surface at (x, y) in base_link. -->
+  <xacro:macro name="deck_joint" params="name x y">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${name}_link"/>
+      <origin xyz="${x} ${y} ${robot.body.deck_height - axle_height}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- A box-shaped visual standing on the link's frame (the deck surface). -->
+  <xacro:macro name="deck_box" params="name x y length width height material">
+    <visual name="${name}">
+      <origin xyz="${x} ${y} ${height / 2.0}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${length} ${width} ${height}"/>
+      </geometry>
+      <material name="${material}"/>
+    </visual>
+  </xacro:macro>
+
+  <xacro:macro name="tote_tray">
+    <xacro:property name="tray" value="${robot.tote_tray}"/>
+    <xacro:property name="outer_length" value="${tray.length + 2.0 * tray_rim_width}"/>
+    <xacro:deck_joint name="tote_tray" x="${tray.x}" y="${tray.y}"/>
+    <link name="tote_tray_link">
+      <!-- The rim: two long sides along x, two short ends between them. -->
+      <xacro:deck_box name="tray_rim_left" x="0" y="${(tray.width + tray_rim_width) / 2.0}"
+                      length="${outer_length}" width="${tray_rim_width}"
+                      height="${tray_rim_height}" material="tray_grey"/>
+      <xacro:deck_box name="tray_rim_right" x="0" y="${-(tray.width + tray_rim_width) / 2.0}"
+                      length="${outer_length}" width="${tray_rim_width}"
+                      height="${tray_rim_height}" material="tray_grey"/>
+      <xacro:deck_box name="tray_rim_front" x="${(tray.length + tray_rim_width) / 2.0}" y="0"
+                      length="${tray_rim_width}" width="${tray.width}"
+                      height="${tray_rim_height}" material="tray_grey"/>
+      <xacro:deck_box name="tray_rim_rear" x="${-(tray.length + tray_rim_width) / 2.0}" y="0"
+                      length="${tray_rim_width}" width="${tray.width}"
+                      height="${tray_rim_height}" material="tray_grey"/>
+    </link>
+  </xacro:macro>
+
+  <!-- A mushroom-shaped button: a short stem and a wider cap. -->
+  <xacro:macro name="emergency_stop">
+    <xacro:deck_joint name="emergency_stop" x="${stop_x}" y="${stop_y}"/>
+    <link name="emergency_stop_link">
+      <visual name="stop_stem">
+        <origin xyz="0 0 ${0.3 * stop_height}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${0.6 * stop_radius}" length="${0.6 * stop_height}"/>
+        </geometry>
+        <material name="stop_red"/>
+      </visual>
+      <visual name="stop_cap">
+        <origin xyz="0 0 ${0.8 * stop_height}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${stop_radius}" length="${0.4 * stop_height}"/>
+        </geometry>
+        <material name="stop_red"/>
+      </visual>
+    </link>
+  </xacro:macro>
+
+  <xacro:macro name="status_light">
+    <xacro:deck_joint name="status_light" x="${light_x}" y="${light_y}"/>
+    <link name="status_light_link">
+      <visual name="status_light_dome">
+        <geometry>
+          <sphere radius="${light_radius}"/>
+        </geometry>
+        <material name="status_light"/>
+      </visual>
+    </link>
+  </xacro:macro>
+
+</robot>

@@ -1,7 +1,17 @@
 <?xml version="1.0"?>
 <!--
-  Warehouse tote AMR, revision B (docs/PROJECT_PLAN.md §2.6): a diff-drive base with a
-  front-left 2D scanner and an IMU.
+  Warehouse tote AMR, revision B (docs/PROJECT_PLAN.md §2.6): a diff-drive base in safety
+  yellow and charcoal with a tote tray on its deck, a 360 degree lidar puck at the front of the
+  deck and an IMU.
+
+  Files, with one macro per part (each part with its own colour is its own link,
+  materials.xacro):
+    base.xacro    base_footprint, base_link: the charcoal chassis, the collision box, the inertia
+    body.xacro    the chassis visuals, the yellow shell and the front and rear bumpers
+    deck.xacro    the tote tray, the emergency-stop button and the status light
+    drive.xacro   the wheels (tyre and hub) and the casters
+    lidar.xacro   the lidar puck and its gz gpu_lidar
+    imu.xacro     the IMU and its gz imu sensor
 
   Arguments:
     namespace  the robot's ROS namespace, for example robot1 (with or without slashes).
@@ -42,6 +52,8 @@
   <xacro:include filename="$(find warehouse_description)/urdf/inertia.xacro"/>
   <xacro:include filename="$(find warehouse_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find warehouse_description)/urdf/base.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/body.xacro"/>
+  <xacro:include filename="$(find warehouse_description)/urdf/deck.xacro"/>
   <xacro:include filename="$(find warehouse_description)/urdf/drive.xacro"/>
   <xacro:include filename="$(find warehouse_description)/urdf/lidar.xacro"/>
   <xacro:include filename="$(find warehouse_description)/urdf/imu.xacro"/>
@@ -49,8 +61,15 @@
   <xacro:include filename="$(find warehouse_description)/urdf/gazebo.xacro"/>
 
   <xacro:base/>
+  <xacro:shell/>
+  <xacro:bumper position="front" reflect="1"/>
+  <xacro:bumper position="rear" reflect="-1"/>
+  <xacro:tote_tray/>
+  <xacro:emergency_stop/>
+  <xacro:status_light/>
   <xacro:drive/>
-  <xacro:lidar_2d name="lidar_front" config="${robot.lidar_front}" topic="scan"/>
+  <xacro:lidar_2d name="lidar_front" config="${robot.lidar_front}" topic="scan"
+                  mount_height="${robot.body.deck_height}"/>
   <xacro:imu/>
   <xacro:robot_ros2_control/>
   <xacro:if value="${hardware == 'gz'}">

@@ -2,34 +2,17 @@
 <!--
   Chassis: base_footprint (the URDF root, on the floor) and base_link (on the drive axle).
 
-  Visual: a lower body with wheel wells, the scanner groove (set back by groove.inset) and
-  the deck. The groove matters in Gazebo: gpu_lidar renders visuals, so the body must not
-  reach into the scan plane next to the scanner (0 self-hits, plan §2.6).
+  Visual: base_link carries the charcoal chassis (skirt, wheel arches, deck top; body.xacro).
+  The other parts of the body are links of their own (body.xacro, deck.xacro).
   Collision: one box for the whole body (plan §2.6). It is cheap for the physics engine, and
-  the details of the visual do not matter for contacts.
+  the details of the visuals do not matter for contacts.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-
-  <!-- A box-shaped visual between two heights above the floor. -->
-  <xacro:macro name="body_block" params="name x y length width bottom top material">
-    <visual name="${name}">
-      <origin xyz="${x} ${y} ${(bottom + top) / 2.0 - axle_height}" rpy="0 0 0"/>
-      <geometry>
-        <box size="${length} ${width} ${top - bottom}"/>
-      </geometry>
-      <material name="${material}"/>
-    </visual>
-  </xacro:macro>
 
   <xacro:macro name="base">
     <xacro:property name="length" value="${robot.footprint.length}"/>
     <xacro:property name="width" value="${robot.footprint.width}"/>
     <xacro:property name="body" value="${robot.body}"/>
-    <!-- Wheel wells: the wheels sit inside the outline, so the lower body leaves room for
-         them (1.5 cm in front of and behind each wheel, 1 cm inboard). -->
-    <xacro:property name="well_half_length" value="${robot.drive.wheel_radius + 0.015}"/>
-    <xacro:property name="well_inner_y"
-                    value="${robot.drive.wheel_separation / 2.0 - robot.drive.wheel_width / 2.0 - 0.01}"/>
 
     <!-- REP-105: base_footprint is the robot's projection on the floor. It is the root of
          the tree and has no inertia (KDL, used by robot_state_publisher, rejects a root
@@ -45,29 +28,7 @@
     <!-- base_link sits on the drive axle, which is also the geometric centre: the robot
          turns in place inside its own circle (plan §2.6). -->
     <link name="base_link">
-      <!-- Lower body, from the floor clearance to the bottom of the groove. -->
-      <xacro:body_block name="lower_body_front" material="body_orange"
-                        x="${(length / 2.0 + well_half_length) / 2.0}" y="0"
-                        length="${length / 2.0 - well_half_length}" width="${width}"
-                        bottom="${body.clearance}" top="${body.groove.bottom}"/>
-      <xacro:body_block name="lower_body_rear" material="body_orange"
-                        x="${-(length / 2.0 + well_half_length) / 2.0}" y="0"
-                        length="${length / 2.0 - well_half_length}" width="${width}"
-                        bottom="${body.clearance}" top="${body.groove.bottom}"/>
-      <xacro:body_block name="lower_body_centre" material="body_orange"
-                        x="0" y="0"
-                        length="${2.0 * well_half_length}" width="${2.0 * well_inner_y}"
-                        bottom="${body.clearance}" top="${body.groove.bottom}"/>
-      <!-- Scanner groove: the body is set back by groove.inset on every side. -->
-      <xacro:body_block name="scanner_groove" material="scanner_band_black"
-                        x="0" y="0"
-                        length="${length - 2.0 * body.groove.inset}"
-                        width="${width - 2.0 * body.groove.inset}"
-                        bottom="${body.groove.bottom}" top="${body.groove.top}"/>
-      <!-- Deck that carries one 400 x 300 mm tote. -->
-      <xacro:body_block name="deck" material="deck_grey"
-                        x="0" y="0" length="${length}" width="${width}"
-                        bottom="${body.groove.top}" top="${body.deck_height}"/>
+      <xacro:chassis/>
 
       <!-- Collisions stay unnamed: Gazebo matches <gazebo reference> surface settings to the
            collision names it generates, and a custom name silently drops them. -->

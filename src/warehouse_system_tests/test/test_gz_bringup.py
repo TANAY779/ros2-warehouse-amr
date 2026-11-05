@@ -73,7 +73,7 @@ MAX_DECELERATION = -DRIVE['linear']['x']['max_deceleration']  # m/s^2, as a posi
 TARGET_X = 0.0  # m, world position of its centre
 TARGET_Y = 2.0
 TARGET_SIZE = 0.4  # m, square footprint
-TARGET_HEIGHT = 0.5  # m, from the floor; covers the scan plane
+TARGET_HEIGHT = 0.5  # m, from the floor; must reach above the scan plane (checked in test_06)
 _TARGET_BOX = (f'<geometry><box><size>{TARGET_SIZE} {TARGET_SIZE} {TARGET_HEIGHT}</size></box>'
                '</geometry>')
 TARGET_SDF = ('<sdf version="1.9"><model name="scan_target"><static>true</static>'
@@ -240,6 +240,8 @@ class TestGazeboBringup(unittest.TestCase):
                          {'robot_state_publisher', 'ekf_filter_node'})
 
     def test_06_scanner_sees_the_target_and_not_itself(self):
+        # A box lower than the scan plane would be invisible to the scanner.
+        self.assertGreater(TARGET_HEIGHT, LIDAR['height'])
         # Scanner pose in base_footprint from the static transforms (a planar chain).
         parents = rh.tf_parents(self.tf_static.messages)
         self.assertEqual(parents.get('lidar_front_link'), 'base_link')
@@ -270,6 +272,9 @@ class TestGazeboBringup(unittest.TestCase):
         scan.clear()
         self.assertTrue(rh.spin_until(self.node, lambda: len(scan.messages) >= 20, 30.0))
         self.assertEqual(len(scan.last.ranges), LIDAR['samples'])
+        # The rays cover fov_deg (a full circle): each covers one angle_increment.
+        span = scan.last.angle_max - scan.last.angle_min + scan.last.angle_increment
+        self.assertAlmostEqual(span, math.radians(LIDAR['fov_deg']), places=4)
 
         # A return counts as on the target within 5 sigma of the range noise. With hundreds of
         # returns per run, a 3 sigma bound would fail regularly by chance; 5 sigma never does.
