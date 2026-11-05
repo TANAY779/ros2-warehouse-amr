@@ -81,7 +81,8 @@ the centre of mass (0.14 ± 0.005 m, centred in x and y).
 - **Frictionless casters, unnamed collisions.** The casters only carry load (`mu1`/`mu2` 0 in a
   `<gazebo reference>` block). Gazebo's URDF converter applies such surface settings only to the
   collision names it generates itself (`<link>_collision`): a `<collision name="...">` silently
-  loses them. All collisions are therefore unnamed, and a test guards it.
+  loses them. All collisions are therefore unnamed, and a test guards it; `warehouse_gazebo`'s
+  test also checks the caster friction in Gazebo's converted model (`gz sdf -p`).
 - **Scanner groove, 0 self-hits.** `gpu_lidar` renders the scene, so it sees visuals, not
   collisions. Between 0.15 and 0.25 m the body is set back by 3 cm, and the scanner sits on that
   set-back corner, facing 45°. Its 264° field of view then keeps the edge rays 3° off the body
