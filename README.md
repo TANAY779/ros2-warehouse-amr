@@ -9,15 +9,16 @@ A simulated warehouse in which autonomous mobile robots (AMRs) will fulfil order
 themselves, scan inventory and work as a fleet. It is being built with ROS 2 Jazzy, Nav2 and
 Gazebo Harmonic, one phase at a time, and each phase will end with a recorded demo.
 
-> **Status:** Phase 0 (repository foundation) is complete; Phase 1, the robot, is next.
-> Nothing drives yet.
+> **Status:** Phase 1 (the robot) is done except its demo GIF: one robot drives by keyboard
+> teleop, in Gazebo or on mock hardware without a simulator. Phase 2 (the warehouse world,
+> mapping and localization) is next.
 
 ## Roadmap
 
 | Milestone | Planned deliverables | Status |
 |---|---|---|
 | M0 Foundation (Phase 0) | CI green on a one-package repo, lint gates, GUI and headless dev containers, protected `main` | done |
-| M1 Core AMR (Phases 1-6, v1.0.0) | A custom tote-carrying AMR that fulfils a stream of orders in a generated warehouse, respects keepout and speed zones, docks to recharge on its own and logs KPIs. Operators submit orders and watch the live map in our Flask dashboard | planned |
+| M1 Core AMR (Phases 1-6, v1.0.0) | A custom tote-carrying AMR that fulfils a stream of orders in a generated warehouse, respects keepout and speed zones, docks to recharge on its own and logs KPIs. Operators submit orders and watch the live map in our Flask dashboard | in progress |
 | M2 Perception (Phases 7-8, v2.0.0) | Docking on a detected ArUco tag. An inventory patrol that reads tote tags with the side cameras, keeps inventory state and flags discrepancies in RViz and the dashboard | planned |
 | M3 Fleet (Phases 9-12, v3.0.0) | 3 identical robots, greedy then auction allocation, aisle traffic control, fleet and traffic views in the dashboard, and the final showcase | planned |
 | Optional (Phases 8b, 13) | Learned tote detection trained on Colab (8b, research paused) and mobile manipulation (13, stretch) | planned |
@@ -32,7 +33,8 @@ recorded in [docs/decisions/](docs/decisions/).
 - [docs/phase-reports/](docs/phase-reports/): one learning report per finished phase,
   explaining what was built, the concepts behind it, what went wrong and how it was fixed, with
   hands-on exercises. Start with
-  [Phase 0: repository foundation](docs/phase-reports/phase-00-foundation.md).
+  [Phase 0: repository foundation](docs/phase-reports/phase-00-foundation.md), then
+  [Phase 1: the robot](docs/phase-reports/phase-01-robot-description.md).
 - [docs/decisions/](docs/decisions/): architecture decision records (ADRs).
 - [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md): the phased project plan.
 
