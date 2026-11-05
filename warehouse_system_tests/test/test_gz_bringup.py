@@ -184,6 +184,7 @@ class TestGazeboBringup(unittest.TestCase):
 
     def test_02_cmd_vel_is_stamped_and_only_the_controller_reads_it(self):
         topic = f'{NS}/cmd_vel'
+        rh.spin_until(self.node, lambda: self.node.get_subscriptions_info_by_topic(topic), 10.0)
         subscribers = self.node.get_subscriptions_info_by_topic(topic)
         self.assertEqual(rh.endpoint_names(subscribers), {'diff_drive_controller'})
         self.assertEqual({s.topic_type for s in subscribers}, {'geometry_msgs/msg/TwistStamped'})
