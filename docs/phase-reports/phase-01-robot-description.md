@@ -882,8 +882,8 @@ Additional numbers:
 
 ## Try it yourself
 
-Each exercise lists the commands and what you should see. `~/warehouse_ws` is the workspace and
-`~/warehouse_ws/src/ros2-warehouse-amr` the repository.
+Each exercise lists the commands and what you should see. `~/warehouse_ws` is both the
+workspace and the repository (ADR-006); the packages are in `~/warehouse_ws/src/`.
 
 ### Before you start
 
@@ -1018,7 +1018,7 @@ Three links remain: `base_footprint` with `<mass>33.000000000000007</mass>` (bod
 merged through their fixed joints, concept 2) and the two wheel links with 1 kg each. The
 casters show `<mu>0</mu>`, the wheels `<mu>1</mu>`. Try adding `name="caster"` to the caster
 `<collision>` in `drive.xacro` and repeat: the caster friction disappears (problem 3). Undo the
-change with `git -C src/ros2-warehouse-amr restore warehouse_description/urdf/drive.xacro`.
+change with `git restore src/warehouse_description/urdf/drive.xacro`.
 
 ### Exercise 3: the robot without a simulator (mock hardware)
 
@@ -1140,7 +1140,7 @@ description tests:
 
 ```bash
 sed -i 's/^  wheel_radius: 0.075$/  wheel_radius: 0.080/' \
-  src/ros2-warehouse-amr/warehouse_description/config/robot.yaml
+  src/warehouse_description/config/robot.yaml
 colcon test --packages-select warehouse_description
 colcon test-result --verbose | grep -E '^ +E +|FAILED'
 ```
@@ -1152,7 +1152,7 @@ The output ends with:
     E         comparison failed
     E         Obtained: 0.075
     E         Expected: 0.08 ± 8.0e-08
-    FAILED ../../src/ros2-warehouse-amr/warehouse_description/test/test_description.py::test_controllers_match_robot_yaml
+    FAILED ../../src/warehouse_description/test/test_description.py::test_controllers_match_robot_yaml
 ```
 
 The URDF followed `robot.yaml` automatically, the controller's copy in `controllers.yaml` did
@@ -1161,7 +1161,7 @@ not, and the test caught it.
 Undo the change and re-run:
 
 ```bash
-git -C src/ros2-warehouse-amr restore warehouse_description/config/robot.yaml
+git restore src/warehouse_description/config/robot.yaml
 colcon test --packages-select warehouse_description && colcon test-result
 ```
 
@@ -1221,7 +1221,7 @@ window sit beside it, all inside one rectangle of the screen.
 
 ```bash
 sudo apt install ffmpeg gifsicle
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 mkdir -p docs/media
 ffmpeg -i ~/Videos/Screencasts/<your-recording>.webm \
   -vf "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=5" \

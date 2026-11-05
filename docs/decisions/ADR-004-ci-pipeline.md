@@ -49,7 +49,7 @@ environment variables:
 ## Consequences
 
 - A CI failure can be reproduced from the repository root with
-  `docker run --rm -it -v "$PWD":/ws/src/ros2-warehouse-amr -w /ws ros:jazzy-ros-base bash`,
+  `docker run --rm -it -v "$PWD":/ws -w /ws ros:jazzy-ros-base bash`,
   then `export DEBIAN_FRONTEND=noninteractive AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1` and the
   `run:` commands from `ci.yml`.
 - Steps that `action-ros-ci` provided are added by hand: the `vcs import` of

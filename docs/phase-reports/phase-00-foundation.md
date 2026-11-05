@@ -108,11 +108,16 @@ warehouse_ws/                 colcon workspace (not version-controlled)
     └── ros2-warehouse-amr/   this repository: one folder per ROS 2 package
 ```
 
+> **Update 2026-11-05:** the repository root is now the colcon workspace itself
+> ([ADR-006](../decisions/ADR-006-workspace-root-repository.md)): clone it as `~/warehouse_ws`;
+> packages live in `~/warehouse_ws/src/`. The commands in this report are updated; the layout
+> described here is how Phase 0 started.
+
 colcon, run from the workspace root, searches the folders below it recursively for
 `package.xml` files (skipping its own `build/`, `install/` and `log/`), so it does not matter
 that the packages sit one level deeper. Third-party sources that have no binary
 package go in `dependencies.repos` and are cloned next to the repository with
-`vcs import --input src/ros2-warehouse-amr/dependencies.repos src` (the list is empty today,
+`vcs import --input dependencies.repos src` (the list is empty today,
 but CI and the dev container already run the step, so adding an entry cannot break them).
 
 **Why industry does it.** Build output never enters the repository, so `git status` stays
@@ -299,10 +304,10 @@ every change. GitHub Actions runs *workflows* (YAML files in `.github/workflows/
   step run with `bash --noprofile --norc -eo pipefail`, which guarantees `source` and stops
   at the first failing command, even inside a pipe. The steps check the repository out into
   `src/ros2-warehouse-amr` (making the job's working directory a colcon workspace) and then
-  run:
+  run (since ADR-006 the checkout itself is the workspace, so it goes to the job's root):
 
   ```bash
-  vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+  vcs import --input dependencies.repos src
   apt-get update
   rosdep update --rosdistro jazzy
   rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
@@ -351,7 +356,8 @@ and runs the editor's tools inside it.
   1000, and `updateRemoteUserUID: true` lets VS Code change that UID to yours if it differs.
   The workspace directory `~/ws/src` is created by `ros` in the image; otherwise Docker would
   create it as root for the bind mount and `ros2 pkg create` would fail there.
-- **Workspace.** The repository is mounted at `/home/ros/ws/src/ros2-warehouse-amr`, and VS
+- **Workspace.** The repository was mounted at `/home/ros/ws/src/ros2-warehouse-amr` (since
+  ADR-006 the whole repository, which is the workspace, is mounted at `/home/ros/ws`), and VS
   Code opens `/home/ros/ws`, the colcon workspace. `post-create.sh` runs once: `vcs import`,
   `rosdep install` (the same commands as CI) and `pre-commit install`.
 - **GPU.** `--device=/dev/dri` passes the Intel/AMD GPU render node through, and
@@ -620,8 +626,8 @@ Each story is told as symptom → root cause → fix → lesson.
 
 ## Try it yourself
 
-Each exercise lists the commands and what you should see. `~/warehouse_ws` is the workspace
-and `~/warehouse_ws/src/ros2-warehouse-amr` the repository.
+Each exercise lists the commands and what you should see. `~/warehouse_ws` is both the
+workspace and the repository (ADR-006); the packages are in `~/warehouse_ws/src/`.
 
 **Before you start:**
 
@@ -639,7 +645,7 @@ and `~/warehouse_ws/src/ros2-warehouse-amr` the repository.
 ```bash
 source /opt/ros/jazzy/setup.bash
 cd ~/warehouse_ws
-vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+vcs import --input dependencies.repos src
 rosdep install --from-paths src --ignore-src -y
 colcon build --symlink-install
 colcon test && colcon test-result --verbose
@@ -675,7 +681,7 @@ check yet), `lint_cmake` and `xmllint` with 1 each. colcon counts every result f
 ### Exercise 3: watch pre-commit block a badly formatted C++ file
 
 ```bash
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 pre-commit install
 git switch -c try/pre-commit
 mkdir -p warehouse_bringup/src
@@ -702,7 +708,7 @@ git branch -D try/pre-commit
 ### Exercise 4: flake8 and yamllint, the same rules as ament
 
 ```bash
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 mkdir -p warehouse_bringup/launch warehouse_bringup/config
 printf 'import sys\nimport os\n\nprint("hello", os.sep, sys.argv)\n' \
   > warehouse_bringup/launch/try.launch.py
@@ -729,8 +735,8 @@ environment variable. `ament_copyright --add-missing` adds the Apache-2.0 header
 
 ```bash
 cd ~/warehouse_ws
-mkdir -p src/ros2-warehouse-amr/warehouse_bringup/src
-cat > src/ros2-warehouse-amr/warehouse_bringup/src/oob.cpp <<'CPP'
+mkdir -p src/warehouse_bringup/src
+cat > src/warehouse_bringup/src/oob.cpp <<'CPP'
 int sum_readings()
 {
   int readings[3] = {1, 2, 3};
@@ -741,7 +747,7 @@ int sum_readings()
   return total;
 }
 CPP
-ament_copyright --add-missing "Your Name" apache2 src/ros2-warehouse-amr/warehouse_bringup/src/oob.cpp
+ament_copyright --add-missing "Your Name" apache2 src/warehouse_bringup/src/oob.cpp
 colcon build --symlink-install --packages-select warehouse_bringup --cmake-force-configure
 (unset AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS; colcon test --packages-select warehouse_bringup)
 colcon test-result --all | grep cppcheck
@@ -778,7 +784,7 @@ package's build folder: old result files such as `cppcheck.xunit.xml` would othe
 there and keep showing up in `colcon test-result`.
 
 ```bash
-rm -r src/ros2-warehouse-amr/warehouse_bringup/src
+rm -r src/warehouse_bringup/src
 rm -r build/warehouse_bringup
 colcon build --symlink-install --packages-select warehouse_bringup
 ```
@@ -789,15 +795,15 @@ From the repository root, start the same image CI uses, with the repository moun
 checks it out:
 
 ```bash
-cd ~/warehouse_ws/src/ros2-warehouse-amr
-docker run --rm -it -v "$PWD":/ws/src/ros2-warehouse-amr -w /ws ros:jazzy-ros-base bash
+cd ~/warehouse_ws
+docker run --rm -it -v "$PWD":/ws -w /ws ros:jazzy-ros-base bash
 ```
 
 Inside the container, run the job's environment and `run:` commands from `ci.yml`:
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1
-vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+vcs import --input dependencies.repos src
 apt-get update
 rosdep update --rosdistro jazzy
 rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
@@ -824,7 +830,7 @@ repository from inside it: they would be owned by root on your host.
 ### Exercise 7: CI and branch protection on GitHub
 
 ```bash
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 gh run list --workflow ci.yml --limit 5
 ```
 
@@ -848,7 +854,7 @@ period; pick a recent run.)
 ### Exercise 8: one rule, enforced in many places
 
 ```bash
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 git grep -l AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS -- ':!docs/phase-reports' ':!docs/PROJECT_STATUS.md'
 ```
 

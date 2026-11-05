@@ -1,4 +1,4 @@
-# colcon output (only appears here if someone builds from inside the repo by mistake)
+# colcon output: the repository root is the colcon workspace (ADR-006)
 build/
 install/
 log/

@@ -45,10 +45,9 @@ Requires Ubuntu 24.04 with [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installat
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-mkdir -p ~/warehouse_ws/src && cd ~/warehouse_ws/src
-git clone https://github.com/TANAY779/ros2-warehouse-amr.git
+git clone https://github.com/TANAY779/ros2-warehouse-amr.git ~/warehouse_ws
 cd ~/warehouse_ws
-vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+vcs import --input dependencies.repos src
 rosdep update
 rosdep install --from-paths src --ignore-src -y
 colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
@@ -79,6 +78,9 @@ has ROS 2 Jazzy, Gazebo Harmonic and all lint tools; the workspace is at `/home/
   starts, VS Code runs `xhost +SI:localuser:$(id -un)` on the host (`initializeCommand`), which
   lets only processes running with your UID, including the container user, open windows. Never
   use `xhost +local:`: it lets every local user and every container use your display.
+- The container mounts the whole workspace at `/home/ros/ws`, so it shares `build/`, `install/`
+  and `log/` with the host. When you switch between building on the host and in the container,
+  run `rm -rf build install log` first: CMake refuses a build folder made at another path.
 - The container sets `ROS_DOMAIN_ID=42` and `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`. Export
   the same values on the host to see the container's topics there.
 - Security: the container shares the host network (`--network=host`) and IPC namespace
@@ -96,18 +98,21 @@ native install:
 
 ```bash
 sudo apt install pre-commit clang-format
-cd ~/warehouse_ws/src/ros2-warehouse-amr && pre-commit install
+cd ~/warehouse_ws && pre-commit install
 ```
 
 ## Repository layout
 
+The repository root is the colcon workspace: packages live in `src/`, and colcon's `build/`,
+`install/` and `log/` (git-ignored) appear next to it.
+
 | Path | Contents |
 |---|---|
-| `warehouse_bringup/` | Top-level launch files (`sim.launch.py`), RViz configuration |
-| `warehouse_description/` | The robot: `robot.yaml`, xacro model, ros2_control and controller configuration |
-| `warehouse_gazebo/` | Gazebo worlds, robot spawning, ros_gz bridge configuration |
-| `warehouse_navigation/` | Localization (the odometry EKF); AMCL and Nav2 in later phases |
-| `warehouse_system_tests/` | Launch tests of the running system (mock hardware in CI, Gazebo locally) |
+| `src/warehouse_bringup/` | Top-level launch files (`sim.launch.py`), RViz configuration |
+| `src/warehouse_description/` | The robot: `robot.yaml`, xacro model, ros2_control and controller configuration |
+| `src/warehouse_gazebo/` | Gazebo worlds, robot spawning, ros_gz bridge configuration |
+| `src/warehouse_navigation/` | Localization (the odometry EKF); AMCL and Nav2 in later phases |
+| `src/warehouse_system_tests/` | Launch tests of the running system (mock hardware in CI, Gazebo locally) |
 | `docs/` | Project status, phase reports, project plan and architecture decision records |
 | `.devcontainer/` | Development container (default and headless configurations) |
 | `.github/` | CI workflow, Dependabot, PR template |

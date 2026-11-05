@@ -58,20 +58,19 @@ jobs:
       # (ADR-004); each test file gets its own ROS_DOMAIN_ID from domain_coordinator.
       ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
       # Gazebo's rendering sensors need a GPU or EGL, which the runners lack: report the
-      # Gazebo launch tests as skipped (warehouse_system_tests/README.md). The mock-hardware
+      # Gazebo launch tests as skipped (src/warehouse_system_tests/README.md). The mock-hardware
       # launch tests still run.
       WAREHOUSE_SKIP_GZ_TESTS: "1"
     defaults:
       run:
         shell: bash
     steps:
-      - name: Check out into a colcon workspace
+      - name: Check out (the repository root is the colcon workspace)
         uses: actions/checkout@v7
         with:
-          path: src/ros2-warehouse-amr
           persist-credentials: false
       - name: Import third-party sources
-        run: vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+        run: vcs import --input dependencies.repos src
       - name: Install dependencies with rosdep
         run: |
           apt-get update
