@@ -1,8 +1,8 @@
 # warehouse_gazebo
 
 Gazebo Harmonic side of the simulation: worlds, spawning a robot, and the bridge between gz
-transport topics and ROS topics. Phase 1 has one empty world; Phase 2 adds the warehouse
-generated from `layout.yaml`.
+transport topics and ROS topics. Two worlds: `empty` (Phase 1) and `warehouse`, which
+`warehouse_layout` generates from its `layout.yaml`.
 
 Normally you do not start these files yourself: `warehouse_bringup/launch/sim.launch.py`
 includes them.
@@ -11,7 +11,8 @@ includes them.
 
 | File | What it does |
 |---|---|
-| `worlds/empty.sdf` | Ground plane, sun and the Gazebo systems the robot needs (below) |
+| `worlds/empty.sdf` | Ground plane, sun and the Gazebo systems the robot needs (below). `sim.launch.py` spawns the robot at the origin |
+| `worlds/warehouse.sdf` | The 30 x 20 m warehouse: the same physics and systems, plus 31 static models (walls, shelf rows, packing station, docks, fixtures, fence, floor paint). `sim.launch.py world:=warehouse` spawns each robot at its spawn pose from the location registry generated with it (warehouse_bringup README, "Where the robot spawns"). **Generated, do not edit:** change `warehouse_layout/config/layout.yaml` and run `ros2 run warehouse_layout generate` from the workspace root (warehouse_layout README, "Generated files") |
 | `launch/gazebo.launch.py` | World scope: starts `gz sim` with a world (`world`, `headless` arguments) and bridges `/clock` once per world |
 | `launch/spawn_robot.launch.py` | Robot scope: spawns a robot from its `robot_description` topic (`ros_gz_sim create`) and starts its bridge. Include it inside the robot's namespace |
 | `config/robot_bridge.yaml` | The topics bridged per robot: `scan` (SENSOR_DATA QoS) and `ground_truth/odom` |
@@ -20,7 +21,7 @@ includes them.
 ## Systems in the world
 
 A world that lists any `<plugin>` loads only those systems, so every one the robot relies on
-is listed in `worlds/empty.sdf`:
+is listed in `worlds/empty.sdf` (and in the generated `worlds/warehouse.sdf`):
 
 | System | Why |
 |---|---|
@@ -66,6 +67,7 @@ plugin path Gazebo needs (`GZ_SIM_SYSTEM_PLUGIN_PATH`) comes from the ROS enviro
 
 ```bash
 ros2 launch warehouse_gazebo gazebo.launch.py world:=empty            # server + GUI
+ros2 launch warehouse_gazebo gazebo.launch.py world:=warehouse        # the warehouse
 ros2 launch warehouse_gazebo gazebo.launch.py headless:=true          # server only
 ```
 
@@ -82,8 +84,10 @@ bridges nothing, and the bridge skips an entry with a misspelt ROS type after on
 `test/test_gazebo_config.py` therefore reads the installed files, without starting Gazebo, and
 checks that:
 
-- every world in `worlds/` loads the five systems above, with their class names, and renders
-  with `ogre2`;
+- every world in `worlds/` is valid SDF (`gz sdf -k`, which catches, for example, a visual and
+  a collision with the same name in one link), is named after its file (`world:=<name>` picks
+  the file, tools address the running world by name), steps physics every 1 ms in real time,
+  and loads the five systems above, with their class names, rendering with `ogre2`;
 - every gz topic in `config/robot_bridge.yaml`, expanded in `/robot1` the way the bridge expands
   it, is a topic the robot description publishes, with the message type it carries. For ground
   truth that includes loading `gz-sim-odometry-publisher-system` under its exact filename;
