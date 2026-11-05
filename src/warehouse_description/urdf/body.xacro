@@ -1,0 +1,153 @@
+<?xml version="1.0"?>
+<!--
+  The body's visible parts: a charcoal chassis, safety-yellow body panels and black bumpers.
+
+    chassis  part of base_link: the skirt near the floor, the wheel arches and the deck top
+             (charcoal). Called inside base_link in base.xacro.
+    shell    the yellow body panels, with a well for each wheel (shell_link)
+    bumper   one black bumper at the front, one at the rear (front_bumper_link,
+             rear_bumper_link)
+
+  Visuals only. The physics engine sees one collision box for the whole body (base.xacro), so
+  none of these shapes changes how the robot drives.
+
+  Each part with its own colour is its own link, because RViz draws a link in one colour
+  (materials.xacro). The links are fixed and massless; Gazebo merges them into base_footprint.
+
+  robot.yaml sets the outline and the deck height; the proportions below are cosmetic. Heights
+  are above the floor. Seen from outside in: the bumpers reach the outline at the front and rear,
+  the deck top at the sides; the panels sit 1-2 cm inside it, and the skirt is set back under
+  the panels.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Cosmetic proportions. The bumpers stand bumper_depth proud of the panels and wrap
+       bumper_corner_length onto the sides; the deck top reaches deck_overhang past the panels;
+       the skirt is set back skirt_inset under them; well_gap is the room around a wheel. -->
+  <xacro:property name="bumper_depth" value="0.02"/>
+  <xacro:property name="bumper_bottom" value="0.05"/>
+  <xacro:property name="bumper_top" value="0.14"/>
+  <xacro:property name="bumper_corner_length" value="0.06"/>
+  <xacro:property name="deck_top_thickness" value="0.02"/>
+  <xacro:property name="deck_overhang" value="0.01"/>
+  <xacro:property name="skirt_top" value="0.08"/>
+  <xacro:property name="skirt_inset" value="0.015"/>
+  <xacro:property name="well_gap" value="0.015"/>
+
+  <!-- Sizes that follow from robot.yaml. -->
+  <xacro:property name="shell_half_length" value="${robot.footprint.length / 2.0 - bumper_depth}"/>
+  <xacro:property name="shell_half_width" value="${robot.footprint.width / 2.0 - deck_overhang}"/>
+  <xacro:property name="shell_top" value="${robot.body.deck_height - deck_top_thickness}"/>
+  <!-- A wheel well reaches well_gap in front of and behind the wheel and above it, and stops
+       1 cm inboard of the wheel. -->
+  <xacro:property name="well_half_length" value="${robot.drive.wheel_radius + well_gap}"/>
+  <xacro:property name="well_top" value="${2.0 * robot.drive.wheel_radius + well_gap}"/>
+  <xacro:property name="well_inner_y"
+                  value="${(robot.drive.wheel_separation - robot.drive.wheel_width) / 2.0 - 0.01}"/>
+
+  <!-- A box-shaped visual from x_min to x_max, half_width to each side of the centre line, and
+       between two heights above the floor. For links whose frame is base_link's (on the axle). -->
+  <xacro:macro name="body_block" params="name x_min x_max half_width bottom top material">
+    <visual name="${name}">
+      <origin xyz="${(x_min + x_max) / 2.0} 0 ${(bottom + top) / 2.0 - axle_height}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${x_max - x_min} ${2.0 * half_width} ${top - bottom}"/>
+      </geometry>
+      <material name="${material}"/>
+    </visual>
+  </xacro:macro>
+
+  <!-- The chassis: base_link's own visuals, all charcoal. -->
+  <xacro:macro name="chassis">
+    <xacro:property name="skirt_half_length" value="${shell_half_length - skirt_inset}"/>
+    <xacro:property name="skirt_half_width" value="${shell_half_width - skirt_inset}"/>
+    <!-- The skirt, from the floor clearance up to the panels, in front of and behind the
+         wheel wells. -->
+    <xacro:body_block name="skirt_front" material="charcoal"
+                      x_min="${well_half_length}" x_max="${skirt_half_length}"
+                      half_width="${skirt_half_width}"
+                      bottom="${robot.body.clearance}" top="${skirt_top}"/>
+    <xacro:body_block name="skirt_rear" material="charcoal"
+                      x_min="${-skirt_half_length}" x_max="${-well_half_length}"
+                      half_width="${skirt_half_width}"
+                      bottom="${robot.body.clearance}" top="${skirt_top}"/>
+    <!-- Between the wheels: the dark inner wall of the wheel wells. -->
+    <xacro:body_block name="wheel_arches" material="charcoal"
+                      x_min="${-well_half_length}" x_max="${well_half_length}"
+                      half_width="${well_inner_y}"
+                      bottom="${robot.body.clearance}" top="${well_top}"/>
+    <!-- The deck top: the tote tray and the lidar stand on it. -->
+    <xacro:body_block name="deck_top" material="charcoal"
+                      x_min="${-shell_half_length - deck_overhang}"
+                      x_max="${shell_half_length + deck_overhang}"
+                      half_width="${robot.footprint.width / 2.0}"
+                      bottom="${shell_top}" top="${robot.body.deck_height}"/>
+  </xacro:macro>
+
+  <!-- The yellow body panels between the skirt and the deck top, cut out around the wheels.
+       shell_link shares base_link's frame. -->
+  <xacro:macro name="shell">
+    <joint name="shell_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="shell_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <link name="shell_link">
+      <xacro:body_block name="shell_front" material="safety_yellow"
+                        x_min="${well_half_length}" x_max="${shell_half_length}"
+                        half_width="${shell_half_width}" bottom="${skirt_top}" top="${shell_top}"/>
+      <xacro:body_block name="shell_rear" material="safety_yellow"
+                        x_min="${-shell_half_length}" x_max="${-well_half_length}"
+                        half_width="${shell_half_width}" bottom="${skirt_top}" top="${shell_top}"/>
+      <!-- Above the wheels. -->
+      <xacro:body_block name="shell_middle" material="safety_yellow"
+                        x_min="${-well_half_length}" x_max="${well_half_length}"
+                        half_width="${shell_half_width}" bottom="${well_top}" top="${shell_top}"/>
+    </link>
+  </xacro:macro>
+
+  <!-- A bumper across the front (reflect 1) or the rear (reflect -1), wrapping round both
+       corners onto the sides. Its frame sits in the middle of its outer face, on the outline,
+       with x pointing away from the robot. -->
+  <xacro:macro name="bumper" params="position reflect">
+    <xacro:property name="height" value="${bumper_top - bumper_bottom}"/>
+    <xacro:property name="half_width" value="${robot.footprint.width / 2.0}"/>
+    <!-- The corner pieces lie on the side panels, out to the outline. -->
+    <xacro:property name="side_thickness" value="${half_width - shell_half_width}"/>
+    <xacro:property name="corner_y" value="${half_width - side_thickness / 2.0}"/>
+    <!-- In base_link, which sits on the axle. -->
+    <xacro:property name="frame_z" value="${bumper_bottom + height / 2.0 - axle_height}"/>
+    <joint name="${position}_bumper_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="${position}_bumper_link"/>
+      <origin xyz="${reflect * robot.footprint.length / 2.0} 0 ${frame_z}"
+              rpy="0 0 ${0.0 if reflect > 0 else pi}"/>
+    </joint>
+    <link name="${position}_bumper_link">
+      <visual name="${position}_bumper">
+        <origin xyz="${-bumper_depth / 2.0} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${bumper_depth} ${2.0 * half_width} ${height}"/>
+        </geometry>
+        <material name="bumper_black"/>
+      </visual>
+      <!-- The rear bumper's frame is turned round: its +y is the robot's right. -->
+      <xacro:bumper_corner name="${position}_bumper_${'left' if reflect > 0 else 'right'}"
+                           y="${corner_y}" thickness="${side_thickness}" height="${height}"/>
+      <xacro:bumper_corner name="${position}_bumper_${'right' if reflect > 0 else 'left'}"
+                           y="${-corner_y}" thickness="${side_thickness}" height="${height}"/>
+    </link>
+  </xacro:macro>
+
+  <!-- One corner piece of a bumper, in the bumper's frame: it runs back along a side panel. -->
+  <xacro:macro name="bumper_corner" params="name y thickness height">
+    <visual name="${name}">
+      <origin xyz="${-bumper_depth - bumper_corner_length / 2.0} ${y} 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${bumper_corner_length} ${thickness} ${height}"/>
+      </geometry>
+      <material name="bumper_black"/>
+    </visual>
+  </xacro:macro>
+
+</robot>

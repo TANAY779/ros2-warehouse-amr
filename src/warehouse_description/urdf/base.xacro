@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!--
+  Chassis: base_footprint (the URDF root, on the floor) and base_link (on the drive axle).
+
+  Visual: base_link carries the charcoal chassis (skirt, wheel arches, deck top; body.xacro).
+  The other parts of the body are links of their own (body.xacro, deck.xacro).
+  Collision: one box for the whole body (plan §2.6). It is cheap for the physics engine, and
+  the details of the visuals do not matter for contacts.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="base">
+    <xacro:property name="length" value="${robot.footprint.length}"/>
+    <xacro:property name="width" value="${robot.footprint.width}"/>
+    <xacro:property name="body" value="${robot.body}"/>
+
+    <!-- REP-105: base_footprint is the robot's projection on the floor. It is the root of
+         the tree and has no inertia (KDL, used by robot_state_publisher, rejects a root
+         link with inertia). Gazebo merges base_link into it through the fixed joint. -->
+    <link name="base_footprint"/>
+
+    <joint name="base_joint" type="fixed">
+      <parent link="base_footprint"/>
+      <child link="base_link"/>
+      <origin xyz="0 0 ${axle_height}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- base_link sits on the drive axle, which is also the geometric centre: the robot
+         turns in place inside its own circle (plan §2.6). -->
+    <link name="base_link">
+      <xacro:chassis/>
+
+      <!-- Collisions stay unnamed: Gazebo matches <gazebo reference> surface settings to the
+           collision names it generates, and a custom name silently drops them. -->
+      <collision>
+        <origin xyz="0 0 ${(body.clearance + body.deck_height) / 2.0 - axle_height}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${length} ${width} ${body.deck_height - body.clearance}"/>
+        </geometry>
+      </collision>
+
+      <!-- The battery sits low, so the centre of mass (com_height) is below the centre of
+           the box; the uniform-box inertia about that point is a close approximation. -->
+      <xacro:box_inertial mass="${body.mass}" x="${length}" y="${width}"
+                          z="${body.deck_height - body.clearance}">
+        <origin xyz="0 0 ${body.com_height - axle_height}" rpy="0 0 0"/>
+      </xacro:box_inertial>
+    </link>
+  </xacro:macro>
+
+</robot>

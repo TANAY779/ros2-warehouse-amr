@@ -1,6 +1,6 @@
 # ADR-002: One multi-package repository inside a colcon workspace
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-006](ADR-006-workspace-root-repository.md) (2026-11-05)
 - **Date:** 2026-11-02
 - **Plan reference:** D9
 

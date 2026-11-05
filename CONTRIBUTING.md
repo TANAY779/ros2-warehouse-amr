@@ -4,7 +4,8 @@
 
 - **One branch per phase or feature:** `phase-<N>-<short-name>` (e.g. `phase-1-robot-description`)
   or `feat/<short-name>`.
-- **Pull request into `main`** using the PR template. CI must be green before merging.
+- **Pull request into `main`** using the PR template. CI is paused (since 2026-11-05, see
+  [Build and test](#build-and-test)): build and run what you changed before merging.
 - **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/), with
   the package as the scope:
 
@@ -35,7 +36,7 @@ Native Ubuntu 24.04 + ROS 2 Jazzy:
 ```bash
 sudo apt install pre-commit clang-format
 echo 'export AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1' >> ~/.bashrc  # let colcon test run cppcheck
-cd ~/warehouse_ws/src/ros2-warehouse-amr
+cd ~/warehouse_ws
 pre-commit install          # run hooks on every commit
 ```
 
@@ -52,11 +53,22 @@ From the workspace root (`~/warehouse_ws`):
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-vcs import --input src/ros2-warehouse-amr/dependencies.repos src
+vcs import --input dependencies.repos src
 rosdep install --from-paths src --ignore-src -y
 colcon build --symlink-install
+```
+
+**Checks are paused** while the project is under heavy development (decided 2026-11-05):
+GitHub CI runs only when started by hand (Actions → CI → Run workflow), `main` requires a pull
+request but no passing checks, and the pre-commit hook is optional. `colcon.meta` at the
+workspace root builds every package with `-DBUILD_TESTING=OFF`, so a plain `colcon build`
+needs no test or lint tools; verify a change by running it. The tests and lint configuration
+stay in the repository; to run them all (`--metas /dev/null` skips `colcon.meta`):
+
+```bash
+colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 colcon test && colcon test-result --verbose
-(cd src/ros2-warehouse-amr && pre-commit run --all-files)
+pre-commit run --all-files
 ```
 
 `colcon test` needs network access: the xmllint test downloads the `package.xml` schema from
@@ -101,7 +113,8 @@ Enforced by pre-commit and by the `ament_lint` tests in `colcon test`; see
 
 ## New packages
 
-- Name it `warehouse_<purpose>` and create it only in the phase that needs it.
+- Name it `warehouse_<purpose>`, put it in `src/` and create it only in the phase that needs it.
+  Add it to `colcon.meta` (tests off by default while checks are paused).
 - **ament_cmake packages:** copy the lint setup from `warehouse_bringup`: the
   `ament_cmake_clang_format`, `ament_lint_auto` and `ament_lint_common` test dependencies in
   `package.xml`, and the `if(BUILD_TESTING)` block of `CMakeLists.txt`, which requires

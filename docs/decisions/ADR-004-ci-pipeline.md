@@ -1,6 +1,6 @@
 # ADR-004: CI runs plain rosdep/colcon steps in the official ROS image
 
-- **Status:** accepted
+- **Status:** accepted; paused since 2026-11-05 (see the update at the end)
 - **Date:** 2026-11-02
 - **Plan reference:** Phase 0 (replaces the planned `ros-tooling/action-ros-ci`)
 
@@ -28,6 +28,16 @@ Dependabot keeps the action versions current.
 A separate nightly simulation job (headless Gazebo) is added in Phase 6; it does not block
 pull requests.
 
+**Phase 1 addition (2026-11-05).** With the first launch tests, the build-and-test job sets two
+environment variables:
+
+- `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, like the dev containers: DDS discovery stays on the
+  runner. Each launch test file also runs in its own `ROS_DOMAIN_ID`, picked by
+  `domain_coordinator` through `ament_cmake_ros`'s `run_test_isolated.py`.
+- `WAREHOUSE_SKIP_GZ_TESTS=1`: the runners have no GPU or EGL for Gazebo's rendering sensors,
+  so the Gazebo launch tests report every case as skipped. The mock-hardware launch tests
+  (`hardware:=mock`, no simulator) run in every pull request.
+
 ## Alternatives considered
 
 | Option | Why not |
@@ -39,7 +49,7 @@ pull requests.
 ## Consequences
 
 - A CI failure can be reproduced from the repository root with
-  `docker run --rm -it -v "$PWD":/ws/src/ros2-warehouse-amr -w /ws ros:jazzy-ros-base bash`,
+  `docker run --rm -it -v "$PWD":/ws -w /ws ros:jazzy-ros-base bash`,
   then `export DEBIAN_FRONTEND=noninteractive AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1` and the
   `run:` commands from `ci.yml`.
 - Steps that `action-ros-ci` provided are added by hand: the `vcs import` of
@@ -50,4 +60,17 @@ pull requests.
 - Job timeouts (10 minutes for lint, 30 for build & test) stop a stalled apt mirror or a hung
   test from holding a runner for GitHub's 6-hour default.
 - rosdep installs dependencies on every run; add caching or a prebuilt image if build times
-  grow past a few minutes.
+  grow past a few minutes. From Phase 1 that includes Gazebo, ros2_control and RViz (the
+  packages' run dependencies), even though CI skips the Gazebo tests.
+- `colcon test-result` reports the Gazebo test cases as skipped in CI. A skipped count above
+  zero is expected there; locally it should be zero.
+
+## Update 2026-11-05: CI paused
+
+The owner paused the automatic checks while the project is under heavy development: changes
+are verified by building and running them. The workflow now runs only when started by hand
+(`workflow_dispatch`), the "Protect main" ruleset no longer requires the two checks (a pull
+request is still required), and the pre-commit hook is optional. Nothing was deleted: the
+workflow, the lint configuration and every test stay in the repository. To resume, restore the
+`push` and `pull_request` triggers in `ci.yml` and add `Lint (pre-commit)` and
+`Build & test (ROS 2 Jazzy)` back as required status checks.
