@@ -16,20 +16,17 @@ TF, ros2_control, QoS or sim time, the
 
 ## At a glance
 
-- **Current phase (as of 2026-11-05):** Phase 1 (robot description and first drive in
-  Gazebo) is **done, pending its pull request** from the branch `phase-1-robot-description`.
-  Every automated acceptance check passed and the
-  [learning report](phase-reports/phase-01-robot-description.md) is written. The owner's design
-  review then gave the robot a 360° lidar puck on its deck and a new look (2026-11-05); the scan,
-  frame and drive checks were re-run by hand, the test suite runs again when checks resume.
-  Still open: the demo GIF (recorded by the maintainer, report exercise 7), the merge, and the
-  `phase-1` tag.
-  Phase 2 (warehouse world, mapping, localization) is next.
+- **Current phase (as of 2026-11-05):** Phase 2 (warehouse world, mapping, localization) has
+  started on the branch `phase-2-warehouse-world`. Phase 1 (robot description and first drive
+  in Gazebo) is **done and merged** into `main` (pull request #2, 2026-11-05), including the
+  owner's design review: a 360° lidar puck on the deck and a new look. Its
+  [learning report](phase-reports/phase-01-robot-description.md) is written. Still open for
+  Phase 1: the demo GIF (recorded by the maintainer, report exercise 7) and the `phase-1` tag.
 - **Last updated:** 2026-11-05
-- **What runs today** (on the Phase 1 branch): our own robot (revision B, safety yellow and
+- **What runs today** (on `main`): our own robot (revision B, safety yellow and
   charcoal) drives by keyboard in an empty Gazebo world through ros2_control, inside the
   `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
-  without a simulator, which CI tests on every pull request. Measured in Gazebo: sensor rates
+  without a simulator (the CI check for it is paused with the other checks, ADR-004). Measured in Gazebo: sensor rates
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
   10 m, EKF within 0.09-0.42 %.
 
@@ -38,8 +35,8 @@ TF, ros2_control, QoS or sim time, the
 | Milestone | Phase | Scope | Status |
 |---|---|---|---|
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` not yet created (as of 2026-11-04) |
-| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done, pending PR** ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending (as of 2026-11-05) |
-| | 2 | Warehouse world generated from a layout file, mapping, localization | planned |
+| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending |
+| | 2 | Warehouse world generated from a layout file, mapping, localization | **in progress** (branch `phase-2-warehouse-world`) |
 | | 3 | Navigation with keep-out and speed zones, safety | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
@@ -60,9 +57,8 @@ scope and acceptance criteria.
 
 ## Features
 
-Only features that exist on `main` are listed, except the Phase 1 entries (robot description,
-Gazebo, EKF, bring-up, teleoperation, system tests), which are on the branch
-`phase-1-robot-description` until its pull request merges. Commands assume the
+Only features that exist on `main` are listed; Phase 2 entries are added as they merge.
+Commands assume the
 repository is cloned as `~/warehouse_ws` (its root is the colcon workspace, ADR-006) and a shell with only ROS 2 Jazzy and this workspace
 sourced (the [Phase 1 report](phase-reports/phase-01-robot-description.md#before-you-start)
 has a `wh_shell` function for that).
