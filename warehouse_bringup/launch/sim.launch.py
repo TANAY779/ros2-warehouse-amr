@@ -28,11 +28,10 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import GroupAction
 from launch.actions import IncludeLaunchDescription
-from launch.actions import SetEnvironmentVariable
+from launch.actions import OpaqueFunction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import AndSubstitution
-from launch.substitutions import EnvironmentVariable
 from launch.substitutions import EqualsSubstitution
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import NotSubstitution
@@ -42,6 +41,24 @@ from launch_ros.actions import PushROSNamespace
 from launch_ros.actions import SetParameter
 from launch_ros.actions import SetRemap
 from launch_ros.substitutions import FindPackageShare
+
+
+def rviz_setup(context):
+    """Return RViz for one robot, in the robot's absolute namespace."""
+    # Absolute (/robot1), like robot.launch.py: if this file is included inside another
+    # namespace, RViz must stay with the robot at /robot1, not move to /<outer>/robot1.
+    namespace = LaunchConfiguration('namespace').perform(context).strip('/')
+    return [
+        PushROSNamespace('/' + namespace),
+        # The same remaps as the robot's nodes. The config uses relative topic names (scan,
+        # odom), which resolve in the namespace.
+        SetRemap('/tf', 'tf'),
+        SetRemap('/tf_static', 'tf_static'),
+        Node(package='rviz2', executable='rviz2',
+             arguments=['-d', PathJoinSubstitution(
+                 [FindPackageShare('warehouse_bringup'), 'rviz', 'robot.rviz'])],
+             output='screen'),
+    ]
 
 
 def generate_launch_description():
@@ -97,27 +114,16 @@ def generate_launch_description():
         }.items(),
     )
 
-    # RViz runs per robot with the same remaps as the robot's nodes. Its config uses relative
-    # topic names (scan, odom), which resolve in the namespace.
+    # RViz runs per robot. The namespace and remaps that rviz_setup pushes apply only inside
+    # this group. rviz_setup is an OpaqueFunction because making the namespace absolute needs
+    # its value as a string.
     rviz = GroupAction(
         condition=IfCondition(AndSubstitution(LaunchConfiguration('rviz'),
                                               NotSubstitution(headless))),
-        actions=[
-            PushROSNamespace(namespace),
-            SetRemap('/tf', 'tf'),
-            SetRemap('/tf_static', 'tf_static'),
-            Node(package='rviz2', executable='rviz2',
-                 arguments=['-d', PathJoinSubstitution([bringup_share, 'rviz', 'robot.rviz'])],
-                 output='screen'),
-        ],
+        actions=[OpaqueFunction(function=rviz_setup)],
     )
 
     return LaunchDescription(arguments + [
-        # Log lines with severity, time and node name (plan section 6, Observability). A
-        # format set in the shell wins.
-        SetEnvironmentVariable('RCUTILS_CONSOLE_OUTPUT_FORMAT', EnvironmentVariable(
-            'RCUTILS_CONSOLE_OUTPUT_FORMAT',
-            default_value='[{severity}] [{time}] [{name}]: {message}')),
         # Every node launched below uses one clock: Gazebo's /clock or the wall clock.
         SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
         gazebo,
