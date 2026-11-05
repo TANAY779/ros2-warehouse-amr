@@ -55,17 +55,18 @@ From the workspace root (`~/warehouse_ws`):
 source /opt/ros/jazzy/setup.bash
 vcs import --input dependencies.repos src
 rosdep install --from-paths src --ignore-src -y
-colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
+colcon build --symlink-install
 ```
 
 **Checks are paused** while the project is under heavy development (decided 2026-11-05):
 GitHub CI runs only when started by hand (Actions → CI → Run workflow), `main` requires a pull
-request but no passing checks, and the pre-commit hook is optional. Build without tests as
-above (`-DBUILD_TESTING=OFF` also skips the lint test dependencies) and verify a change by
-running it. The tests and lint configuration stay in the repository; to run them all:
+request but no passing checks, and the pre-commit hook is optional. `colcon.meta` at the
+workspace root builds every package with `-DBUILD_TESTING=OFF`, so a plain `colcon build`
+needs no test or lint tools; verify a change by running it. The tests and lint configuration
+stay in the repository; to run them all (`--metas /dev/null` skips `colcon.meta`):
 
 ```bash
-colcon build --symlink-install
+colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 colcon test && colcon test-result --verbose
 pre-commit run --all-files
 ```
@@ -113,6 +114,7 @@ Enforced by pre-commit and by the `ament_lint` tests in `colcon test`; see
 ## New packages
 
 - Name it `warehouse_<purpose>`, put it in `src/` and create it only in the phase that needs it.
+  Add it to `colcon.meta` (tests off by default while checks are paused).
 - **ament_cmake packages:** copy the lint setup from `warehouse_bringup`: the
   `ament_cmake_clang_format`, `ament_lint_auto` and `ament_lint_common` test dependencies in
   `package.xml`, and the `if(BUILD_TESTING)` block of `CMakeLists.txt`, which requires

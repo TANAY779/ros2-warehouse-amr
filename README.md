@@ -50,11 +50,11 @@ cd ~/warehouse_ws
 vcs import --input dependencies.repos src
 rosdep update
 rosdep install --from-paths src --ignore-src -y
-colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
+colcon build --symlink-install
 ```
 
-Tests and CI are paused while the project is under heavy development; see
-[CONTRIBUTING.md](CONTRIBUTING.md#build-and-test) to run them.
+Tests and CI are paused while the project is under heavy development: `colcon.meta` builds
+every package without tests. See [CONTRIBUTING.md](CONTRIBUTING.md#build-and-test) to run them.
 
 First time using rosdep on this machine? Run `sudo rosdep init` once before `rosdep update`.
 
