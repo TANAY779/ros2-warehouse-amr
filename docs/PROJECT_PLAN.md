@@ -132,7 +132,7 @@ Conventions: Nav2-style `uint16 error_code` constants inside each action plus an
 
 | Topic | Type | Rate | QoS | Notes |
 |---|---|---|---|---|
-| `scan`, `scan_rear` (P3) | `LaserScan` | 10 Hz | SensorData | Front-left / rear-right `gpu_lidar`. AMCL and SLAM use `scan`; costmaps and collision monitor use both |
+| `scan`; `scan_rear` only if Rev C adds a rear sensor (P3) | `LaserScan` | 10 Hz | SensorData | `scan`: the 360° `gpu_lidar` puck on the deck (§2.6). AMCL and SLAM use `scan`; costmaps and the collision monitor use every scan |
 | `imu` | `Imu` | 100 Hz | reliable (system default) | `imu_sensor_broadcaster` (gz IMU read through ros2_control). The EKF fuses yaw rate only |
 | `odom/wheel` | `Odometry` | 50 Hz | reliable | `diff_drive_controller`, `enable_odom_tf: false`, `tf_frame_prefix_enable: false` |
 | `odom` | `Odometry` | 50 Hz | reliable | EKF output; the EKF also publishes `odom -> base_footprint` |
@@ -159,7 +159,7 @@ Conventions: Nav2-style `uint16 error_code` constants inside each action plus an
 - `navigation_launch.py` remaps the controller, behavior and smoother `cmd_vel` to `cmd_vel_nav`. The smoother publishes `cmd_vel_smoothed`, which the collision monitor turns into `cmd_vel`. The docking server publishes `cmd_vel` directly.
 
 **Nav2 topic map** (applied with `ReplaceString` before `RewrittenYaml`; a pytest guards it):
-- Server-level topics are relative: `odom_topic: odom`, collision monitor `footprint_topic: local_costmap/published_footprint`, sources `scan` and `scan_rear`.
+- Server-level topics are relative: `odom_topic: odom`, collision monitor `footprint_topic: local_costmap/published_footprint`, sources `scan` (and `scan_rear` if Rev C adds it).
 - Topics read inside costmap plugins resolve under the costmap node, so they use the keyword: observation sources `topic: <robot_namespace>/scan`, SpeedFilter `speed_limit_topic: <robot_namespace>/speed_limit`. With the default, the filter publishes on `global_costmap/speed_limit` and the speed zones are silently ignored.
 - Shared topics are absolute: `map_topic: /map` (costmaps, AMCL), `filter_info_topic: /keepout_filter_info` and `/speed_filter_info`.
 - The pytest fails on `/scan`, `/odom` or `/local_costmap/...`, on any costmap-plugin topic that does not start with `<robot_namespace>/`, and on any of the five velocity servers without `enable_stamped_cmd_vel: true`.
@@ -168,14 +168,17 @@ Conventions: Nav2-style `uint16 error_code` constants inside each action plus an
 
 ```
 map ──(AMCL)──> odom ──(EKF)──> base_footprint ──(RSP)──> base_link   (drive-axle centre)
-                                                          ├── lidar_front_link (P1), lidar_rear_link (P3)
+                                                          ├── lidar_front_link (P1, the scan plane), lidar_rear_link (P3, only if Rev C adds a rear sensor)
                                                           ├── imu_link
                                                           ├── charging_contact_link (P5)
                                                           ├── camera_front_link ── camera_front_optical_frame (P7)
                                                           ├── mast_link ── camera_{left,right}_link ── camera_{left,right}_optical_frame (P7)
-                                                          ├── left/right_wheel_link (joint_states)
-                                                          └── front/rear_caster_link
+                                                          ├── left/right_wheel_link (joint_states) ── left/right_wheel_hub_link
+                                                          ├── front/rear_caster_link
+                                                          └── visual only (P1): shell_link, front/rear_bumper_link, tote_tray_link,
+                                                              emergency_stop_link, status_light_link, lidar_front_mount_link
 ```
+- Visual-only parts are fixed, massless links, one for each part with a colour of its own: RViz draws all visuals of a link in one colour (`warehouse_description` README). Gazebo merges them into `base_footprint`. `tote_tray_link` marks where a tote rides (no phase models one on the robot yet: Rev C).
 - Multi-robot (D7): namespaced tf topics (`/robotN/tf`, through the remaps of §2.3) with unprefixed frames, the Nav2 convention. `diff_drive_controller` must set `tf_frame_prefix_enable: false`; its default prefixes the namespace (`robot1/odom`) and breaks the EKF. Fleet-level poses travel in `RobotStatus`, not TF.
 - Every gz sensor sets `<gz_frame_id>` to its unprefixed URDF frame; cameras set `<optical_frame_id>`, which sets both image and `camera_info` headers.
 - `map` = Gazebo world frame. The robot spawns at a known pose and the SLAM map is aligned to it, so layout, masks and map share one frame.
@@ -193,7 +196,7 @@ map ──(AMCL)──> odom ──(EKF)──> base_footprint ──(RSP)──
 
 ### 2.6 Robot design (D1)
 
-A tote-carrying pick-assist AMR of our own design: a low diff-drive base with a scanner groove, a deck for one 400x300 mm tote, and a slim rear mast for the shelf cameras. All robots are identical. REP-103/105 apply.
+A tote-carrying pick-assist AMR of our own design: a low diff-drive base in safety yellow and charcoal, a deck for one 400x300 mm tote with a 360° lidar puck at its front, and a slim rear mast for the shelf cameras. All robots are identical. REP-103/105 apply.
 
 **Single source.** `warehouse_description/config/robot.yaml` (SI units, heights above the floor, `revision:`). Rule: **geometry is generated, tuning is validated.** xacro reads it with `xacro.load_yaml`; the launch injects the Nav2 `footprint` with `RewrittenYaml`. `robot_config.py` derives radii and fields, and pytest checks `controllers.yaml`, Nav2 limits, the collision-monitor polygons, IMU covariances, `battery_sim` and `layout.yaml` against it.
 
@@ -201,12 +204,12 @@ A tote-carrying pick-assist AMR of our own design: a low diff-drive base with a 
 |---|---|
 | Outline = Nav2 footprint | 0.64 x 0.48 m, `footprint_padding: 0.04`. R_in 0.24 m, R_circ 0.40 m (0.46 m padded) |
 | Frames | `base_footprint` is the URDF root (floor, no inertia). `base_link` sits on the drive axle, which is also the geometric centre, so the robot turns in place inside its own circle |
-| Heights | clearance 0.03, scanner groove 0.15-0.25 (scan plane 0.20, body inset 0.03), deck 0.30, mast top 1.10 m |
+| Heights | clearance 0.03, deck 0.30, lidar scan plane 0.34 (the puck stands on the deck, 0.30-0.36), mast top 1.10 m. Everything else on the deck (tote tray rim, stop button, status light) stays ≥ 2 cm below the scan plane, or the lidar would see the robot; the Rev E mast will cross it |
 | Mass | ≈35 kg, CoM 0.14 m; inertia from box/cylinder/sphere macros (breakdown in `warehouse_description/README.md`) |
 | Drive | Wheel r 0.075 m, separation 0.40 m. Sphere wheel collisions with cylinder visuals (cylinders skew in-place yaw odometry, R13); the spheres stick out 3.5 cm past the outline, inside the 0.04 m padding. 2 frictionless caster spheres (r 0.03) at x ±0.25 |
 | Hard limits (controller) | v +1.2 / -0.3 m/s, ω ±2.0 rad/s, accel 0.8 m/s², decel -1.5 m/s², α ±3 rad/s². Wheel ±22 rad/s, enforced only with `enforce_command_limits: true` on the controller manager |
 | Operating limits (Nav2) | 1.0 m/s open, 0.5 m/s pick aisles, 0.3 m/s crossings (SpeedFilter); rotate 1.0 rad/s; smoother 0.5 / -1.0 m/s²; docking 0.15 m/s; reverse only to undock |
-| 2D scanners | 2x gz `gpu_lidar` at diagonal corners: `scan` front-left (Rev B), `scan_rear` rear-right (Rev C). 264°, 529 samples, 10 Hz, 0.10-20 m, σ 0.01 m. Prototype: 0 self-hits, all 8 bearings covered together |
+| 2D lidar | One gz `gpu_lidar` puck on the deck near the front edge, TurtleBot style (x 0.25 m; the owner's choice, 2026-11-05): `scan`, 360° in 720 rays 0.5° apart (no direction twice), 10 Hz, 0.10-20 m (`range_min` hides its own head), σ 0.01 m. Measured: 0 self-hits. Blind below 0.34 m and, with a tote on the tray, to much of the rear: Rev C. It replaced a front-left corner scanner in a groove round the body (264°, scan plane 0.20 m) |
 | IMU | Base centre, 100 Hz, through ros2_control; gyro σ 0.002 rad/s, accel σ 0.02 m/s²; covariances = σ². Orientation is noise-free gz ground truth, so the EKF does not fuse it |
 | Cameras (Rev E) | Front: RGB 640x480, HFOV 1.2 rad, 10 Hz, at 0.275 m (dock tag). Left/right: RGB 640x480, HFOV 1.57 rad, on the mast at 0.85 m facing ±y (both shelf faces in one pass). No depth, no rear camera |
 | Charging (Rev D) | 2 pads flush in the front face at 0.09 m (`charging_contact_link`); battery 25.6 V, 20 Ah, 10 A charge; forward docking |
@@ -215,20 +218,20 @@ A tote-carrying pick-assist AMR of our own design: a low diff-drive base with a 
 **Layout fit rules** (enforced by `warehouse_layout` tests):
 - Pick aisles 1.6 m clear: turning in place needs ≥ 2 x (0.46 + 0.10) ≈ 1.1 m, and the centreline (0.80 m from each face) is outside the 0.70 m inflation. A stopped robot on the centreline leaves 0.56 m per side. Main and cross aisles 2.4 m.
 - `inflation_radius` 0.70 m (≥ R_circ padded + 0.1 ≈ 0.56): Smac 2D plans for a circle. Aisles below about 1.2 m would need Smac State Lattice (D6).
-- Shelf plinth ≥ 0.25 m, so scanners at 0.20 m see continuous shelf faces.
+- Shelf plinth ≥ 0.40 m, so the lidar (scan plane 0.34 m) sees continuous shelf faces, not single uprights.
 - Tote tags 0.12 m with centres at 0.50 / 0.85 / 1.20 m: anywhere within ±0.15 m of the aisle centre, each tag is ≥ 40 px (D23) and fully inside the side cameras' view, quiet zone included (derivation in `warehouse_layout/README.md`).
-- Dock: docking pose = contact face - 0.32 m; staging pose 0.7 m out. Contact bar ≤ 0.15 m high (below the scan plane, so `layout.yaml` adds a small keepout box around it). A 0.12 m tag on a board 0.25 m behind the contact face, at front-camera height (0.275 m), stays fully in view from staging to docked.
+- Dock: docking pose = contact face - 0.32 m; staging pose 0.7 m out. Contact bar ≤ 0.15 m high (far below the 0.34 m scan plane: the lidar never sees it, so `layout.yaml` adds a small keepout box around it). A 0.12 m tag on a board 0.25 m behind the contact face, at front-camera height (0.275 m), stays fully in view from staging to docked.
 - Every Nav2 goal pose generated from layout (pick, drop, park, dock staging) has a free circle of ≥ 0.56 m around `base_link`, so the 0.48 m stopped/rotating field never blocks the departure turn.
 
 | Rev | Phase | Change | Accepted when |
 |---|---|---|---|
 | A rolling chassis | P1 | Body, drive with sphere collisions, casters, ros2_control `gz`/`mock` | Controllers active in gz and mock; odom error < 1 % over 10 m straight and < 2 % over a 360° turn |
-| B first sensors | P1 | Front-left scanner, IMU through ros2_control | Rates ±10 %; 0 self-hits; IMU σ within ±20 % (checked in P2) |
-| C 360° safety | P3 | Rear-right scanner; footprint injection; safety fields | All 8 bearings seen; collision monitor stops in every sector |
+| B first sensors | P1 | 360° lidar puck on the deck, IMU through ros2_control; body in safety yellow and charcoal with tote tray, emergency stop and status light (the owner's design review, 2026-11-05) | Rates ±10 %; 0 self-hits; IMU σ within ±20 % (checked in P2) |
+| C 360° safety | P3 | Open question: rear and low coverage with a tote on the tray. The puck sees nothing below 0.34 m (pallets, forks, other robots' 0.30 m bodies: only their pucks show) and little behind a tote, and a tote (like the Rev E mast) shows up in the scan inside the footprint, where the collision monitor would stop for it. No phase models a tote on the robot yet (P4 simulates picks as timed waits), so P3 decides when one is modelled, how low an obstacle must be seen, and what covers it, for example low scanners (a rear `scan_rear`, or a corner pair). Footprint injection; safety fields | All 8 bearings seen, also with a tote model on the tray; collision monitor stops in every sector |
 | D dockable | P5 | Charging pads + contact link; `battery` block | Dock success ≥ 95 %; lateral contact offset ≤ 2 cm |
-| E perception kit | P7 | Front camera; mast with left/right cameras | Intrinsics test; every tag ≥ 40 px along the scan route; dock tag in view from staging to docked |
-| F fleet-ready | P9 | Per-robot colour and beacon (gz topics are namespaced since P1) | P9 acceptance |
-| G manipulator | P13 | Arm mount plate, OpenMANIPULATOR-X, arm joints in our ros2_control | CoM inside the support polygon at full reach; P13 acceptance |
+| E perception kit | P7 | Front camera; mast with left/right cameras. The mast crosses the 0.34 m scan plane, so the lidar would see it: Rev E keeps it out of the scan (for example in the tote's shadow, or filtered) | Intrinsics test; every tag ≥ 40 px along the scan route; dock tag in view from staging to docked |
+| F fleet-ready | P9 | Per-robot status-light colour (`status_light_rgba` in `materials.xacro` becomes a xacro argument) and beacon (gz topics are namespaced since P1) | P9 acceptance |
+| G manipulator | P13 | Arm mount plate (it shares the deck front with the lidar puck: P13 decides where each goes), OpenMANIPULATOR-X, arm joints in our ros2_control | CoM inside the support polygon at full reach; P13 acceptance |
 
 Phases 2, 4a-4c, 6, 8 and 10-12 use the robot unchanged. Every revision bump is noted in its PR.
 
@@ -313,7 +316,7 @@ Each decision becomes an ADR in `docs/decisions/` (ADR-001); a later contradicti
 | D18 | CI per ADR-004: a lint job (pre-commit) and a build/test job (`vcs import`, rosdep, `colcon build`, `colcon test`, `colcon test-result`) in `ros:jazzy-ros-base`; nightly headless sim job from P6, not required. CI and the dev containers are the reference environments | `ros-tooling/action-ros-ci` (hides the build); `industrial_ci`; own CI image | A failure reproduces locally with the same commands | rosdep install time grows past a few minutes (cache or prebuilt image) | ADR-004 |
 | D19 | Versioning: marker tags `phase-N` (`phase-4a`); GitHub Releases only at v1.0.0 (P6), v2.0.0 (P8), v3.0.0 (P12); `package.xml` stays 0.1.0 until v1.0.0; robot revisions are letters | `vN.0` per phase (collides with the milestones); per-package versions | One numbering scheme per purpose | | CONTRIBUTING.md |
 | D20 | Nav2 bringup: our launch with a system scope (one `map_server`, keepout and speed info + mask servers, own lifecycle manager) and a robot scope (AMCL + `navigation_launch.py` in one `nav2_container` per namespace); params through the topic map (§2.3); built namespaced in P3 | `bringup_launch.py` per robot (starts a `map_server` per robot; absolute topics in the default params); one info server for both filters (`CostmapFilterInfo` carries one type and one mask) | P9 only adds namespaces; scans and speed limits resolve per robot | | P3 |
-| D21 | Safety layer: two diagonal 264° scanners; `collision_monitor` speed-switched `velocity_polygon` fields + a rotation circle (§2.6). Docking bypasses smoother and collision monitor by design; the docking controller's collision check (`use_collision_detection`, `dock_collision_threshold`) covers it | One static stop polygon; footprint + 0.05 m while rotating (corners sweep in about 10° before the stop, about 21° needed at 1 rad/s); one front scanner (blind at 180-270°); a 360° lidar on top (blocked by tote and mast) | Safety-scanner-like field sets; full coverage when turning in place and undocking | | P3 |
+| D21 | Safety layer: the 360° lidar puck on the deck (Rev B) plus what Rev C adds for the rear behind a loaded tote and for obstacles below the 0.34 m scan plane (open until P3); `collision_monitor` speed-switched `velocity_polygon` fields + a rotation circle (§2.6). Docking bypasses smoother and collision monitor by design; the docking controller's collision check (`use_collision_detection`, `dock_collision_threshold`) covers it | One static stop polygon; footprint + 0.05 m while rotating (corners sweep in about 10° before the stop, about 21° needed at 1 rad/s); two diagonal 264° corner scanners in a groove round the body (the front-left one was built first for Rev B, its rear-right twin was planned for Rev C; the owner chose the puck instead on 2026-11-05); a raised sensor head above the tote (the owner chose the puck on the deck, accepting the blocked rear) | Safety-scanner-like field sets; one sensor sees every bearing of an unloaded robot. Full coverage when turning in place and undocking with a tote is Rev C's job | Rev C cannot cover the rear and low obstacles with the puck: a low rear scanner, or corner scanners again | P3 |
 | D22 | Stateful custom C++ nodes (`order_manager`, `fleet_manager`, `inventory_manager`, `traffic_manager`, `battery_sim`) derive from `nav2_util::LifecycleNode` and bond to the `lifecycle_manager` of their own scope: ours in the system scope (separate from the map/filter manager), ours in `/robotN` for `battery_sim`. Exceptions: `task_executor` (plain node for Nav2's BT nodes, §2.5), `aruco_detector` (component switched by services), the Python dashboard | Plain `rclcpp_lifecycle` nodes under Nav2's manager (no bonds, so bringup aborts); `bond_timeout: 0.0` (no liveness); our nodes under Nav2's managers (one crash resets maps or navigation) | Liveness monitoring for free; separate failure domains | A node cannot bond: `bond_timeout: 0.0` for its manager | 4b |
 | D23 | Fiducials: own `aruco_detector` on OpenCV 4.6's legacy `cv::aruco` API behind an adapter + `solvePnPGeneric(SOLVEPNP_IPPE_SQUARE)` with yaw disambiguation; `DICT_5X5_250` (IDs 0-9 docks, 10-19 test, 20-249 totes), 2-cell quiet zone, ≥ 40 px rule; camera inputs created only while the BT enables them | `ArucoDetector` (not in 4.6); `estimatePoseSingleMarkers` (deprecated upstream); AprilTag 36h11 (8 cells per side, no error correction in OpenCV 4.6, quiet-zone failures); `aruco_opencv` / `aruco_ros` as-is (less learning; `aruco_opencv` stays an optional baseline) | 5x5_250 has min Hamming distance 6; IPPE exposes both pose solutions; on-demand inputs let gz stop rendering idle cameras | More than 230 tote IDs: `DICT_5X5_1000` | P7 |
 | D24 | Perception methods: ArUco first (P7-8). Learned detection is a second, optional method (8b, after v2.0.0) behind the same `InventoryObservation`; model and runtime are preliminary (Phase 8b) | Learned detection first (no labelled data, CPU-only host); Ultralytics (AGPL-3.0) | A deterministic baseline first; 8b reuses its ground truth and metrics | Research resumes | P7 |
@@ -339,7 +342,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
 ### Phase 1: Custom AMR Rev A-B + sim bring-up [L]
 - **Goal:** the robot from §2.6 drives in an empty gz world through ros2_control, namespaced from day one, with scanner, IMU and EKF odometry in RViz.
 - **Deliverables:**
-  - `warehouse_description`: `robot.yaml` (Rev B values); modular xacro with args `namespace` and `hardware` (`gz`, `mock`, `real` = `xacro.fatal`); inertia macros, one collision box for the body, sphere wheel collisions, front-left scanner (`scan`), IMU through ros2_control. No cameras until Rev E.
+  - `warehouse_description`: `robot.yaml` (Rev B values); modular xacro with args `namespace` and `hardware` (`gz`, `mock`, `real` = `xacro.fatal`); inertia macros, one collision box for the body, sphere wheel collisions, a 360° lidar puck on the deck (`scan`), IMU through ros2_control; each visual-only part with a colour of its own a fixed link of its own. No cameras until Rev E.
   - gz sensors: every `<topic>` is `<namespace>/...` (gz transport topics are global, so a fixed `scan` would merge all robots), and every sensor sets `<gz_frame_id>`.
   - `controllers.yaml` with `/**/` keys (plain keys are ignored in a namespace): `joint_state_broadcaster`; `diff_drive_controller` with `base_frame_id: base_footprint`, `enable_odom_tf: false`, `tf_frame_prefix_enable: false`, covariances set, limits with correct signs; `imu_sensor_broadcaster` with covariances = σ² and a large orientation covariance; `enforce_command_limits: true`. Spawner remaps per §2.3.
   - EKF (`robot_localization`, `two_d_mode`) in `warehouse_navigation`: wheel twist (vx, vy = 0, ωz) + IMU ωz only, `odom -> base_footprint`, output remapped to `odom`. Fusing the diff drive's vy = 0 keeps the y covariance bounded.
@@ -371,13 +374,13 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
 ### Phase 3: Navigation with zones and safety (robot Rev C) [L]
 - **Goal:** reliable point-to-point navigation that respects warehouse rules, structured for many robots from the start.
 - **Deliverables:**
-  - Robot Rev C: rear-right scanner `scan_rear`. Both scans feed the costmaps and the collision monitor; AMCL stays on `scan`.
+  - Robot Rev C: answer the open question of rear and low coverage with a loaded tote (§2.6), for example with a low rear scanner `scan_rear`. Every scan feeds the costmaps and the collision monitor; AMCL stays on `scan`.
   - `warehouse_navigation` launch per D20: system scope (map server, keepout and speed info + mask servers) and robot scope (AMCL + `navigation_launch.py` in `nav2_container`), namespaced already. Params go through the topic map of §2.3, with its pytest.
   - Nav2 params: D6, `enable_stamped_cmd_vel: true` in all five velocity servers, footprint injected from `robot.yaml`, `inflation_radius` 0.70. `navigation_launch.py` always starts `docking_server` and `route_server`, so keep a minimal `docking_server` section (`dock_plugins` declared, no docks); P5 configures the same server.
   - `KeepoutFilter` + `SpeedFilter`, each with its own `costmap_filter_info_server` and mask `map_server` (4 lifecycle nodes under one manager); masks generated from `layout.yaml`; `speed_limit_topic: <robot_namespace>/speed_limit`.
   - `collision_monitor` with the §2.6 fields in the chain controller → `velocity_smoother` → `collision_monitor` → `diff_drive_controller`. pytest checks the polygons against `robot.yaml` and the formula, and `controllers.yaml` and Nav2 limits against the hard limits.
   - Navigation CLI (`nav2_simple_commander`) for named locations and pose lists; first headless launch_testing scenario; benchmark script with MCAP recording (`warehouse_ops`).
-  - ADRs: Nav2 configuration and bringup structure (D6, D20), safety layer and diagonal scanners (D21).
+  - ADRs: Nav2 configuration and bringup structure (D6, D20), safety layer and scanner coverage (D21).
 - **Concepts:** Nav2 architecture (BT navigator, planner/controller/smoother servers, costmap layers, lifecycle), costmap filters, topic resolution in namespaces, the safety layer, tuning methodology.
 - **Acceptance:**
   - At least 95 % success over 50 random reachable goals, zero keepout entries.
@@ -501,7 +504,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - Prove 2 robots in a throwaway branch first (R2).
   - Robot Rev F: per-robot colour and beacon.
   - `sim_fleet.yaml` spawns N robots under `/robotN` (D7): per-robot `gz_ros2_control` controller manager (`<ros><namespace>` in the plugin tag), a bridge per robot (the shared `robot_bridge.yaml`, expanded in its namespace), and the P3 robot-scope launch per namespace (`GroupAction` / `PushROSNamespace` with the `/tf` remaps) sharing the system scope.
-  - Per-robot dock assignment; RTF in the KPIs; other robots appear as obstacles through the scanners. ADR: multi-robot namespacing (D7).
+  - Per-robot dock assignment; RTF in the KPIs; other robots appear as obstacles through the scanners (at 0.34 m the puck sees only their pucks, not their 0.30 m bodies: Rev C's answer must cover them). ADR: multi-robot namespacing (D7).
 - **Concepts:** namespaces vs remapping, launch composition, DDS discovery cost, sim performance budgeting.
 - **Acceptance:** 3 robots navigate to random goals simultaneously for 10 min with no TF or topic cross-talk: launch_testing asserts the topic list per namespace, and `gz topic -l` / `gz topic -i` show 3 distinct scan and IMU topics with one publisher each. RTF stays at or above 0.7. Idle cameras have 0 subscribers, and RTF with cameras idle is within 0.05 of RTF with cameras absent. **GIF:** 3 robots in Gazebo and on the dashboard map.
 
@@ -537,7 +540,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
 
 ### Phase 13 (stretch): Mobile manipulation (robot Rev G) [L+]
 - **Goal:** pick a tote at a pick station.
-- **Deliverables:** Rev G arm mount plate at the deck front with OpenMANIPULATOR-X: include only the `open_manipulator_x` macro from `turtlebot3_manipulation_description` and declare the arm joints in our ros2_control xacro (`GazeboSimSystem` / `mock_components/GenericSystem`). Arm controllers in the same controller manager; MoveIt config via the setup assistant; gz `DetachableJoint` to grasp. The 0.38 m reach cannot reach aisle shelves from the centreline, so add a head-on pick station approached like a dock (`SimpleNonChargingDock`). BT handoff: Nav2 to the station, dock, MoveIt pick, stow, undock.
+- **Deliverables:** Rev G arm mount plate at the deck front (where the lidar puck stands since Rev B: move one of them) with OpenMANIPULATOR-X: include only the `open_manipulator_x` macro from `turtlebot3_manipulation_description` and declare the arm joints in our ros2_control xacro (`GazeboSimSystem` / `mock_components/GenericSystem`). Arm controllers in the same controller manager; MoveIt config via the setup assistant; gz `DetachableJoint` to grasp. The 0.38 m reach cannot reach aisle shelves from the centreline, so add a head-on pick station approached like a dock (`SimpleNonChargingDock`). BT handoff: Nav2 to the station, dock, MoveIt pick, stow, undock.
 - **Concepts:** MoveIt 2, mobile-manipulation handoff, grasp simulation, stability of a loaded base.
 - **Acceptance:** CoM inside the support polygon at full reach; 8/10 autonomous picks from 3 slot positions at the station. **GIF:** a pick at the station.
 
@@ -580,7 +583,7 @@ M1 to M3 total about 243-417 h. Plan with the upper half: M1 about 190-236 h (ro
 |---|---|---|---|
 | R1 | **TwistStamped and stamping**: Jazzy `diff_drive_controller` 4.42 accepts only `TwistStamped`, and a wall-clock stamp defeats `cmd_vel_timeout` in sim (verified: the robot kept turning) | High | `enable_stamped_cmd_vel: true` in all five Nav2 velocity servers (a server left unset publishes unstamped `Twist` that never reaches the base), checked by the topic-map pytest; teleop with `stamped:=true use_sim_time:=true`; every `TwistStamped` publisher uses sim time. Check with `ros2 topic info -v /robot1/cmd_vel` |
 | R2 | **gz_ros2_control multi-robot**: one controller manager per model, plain YAML keys ignored in a namespace, `robot_description` read from `<ns>/robot_description`. Found in Phase 1 (ADR-005): `gz_ros2_control` 1.2.20 registers IMU sensors by name across the whole world, with no per-model filter, so two robots with an IMU named `imu_sensor` would both match it | Med | Namespaced from Phase 1: `/**/` keys, RSP in the robot namespace, spawner remaps. Prove 2 robots at the start of Phase 9, with a unique IMU sensor name per robot (or confirm the plugin's behaviour first). Fallback: gz `DiffDrive` + `JointStatePublisher` via the bridge (ADR) |
-| R3 | **Sim performance** (iGPU, 15 GB): 3x (2 gpu_lidars + 3 RGB cameras) + 3x Nav2 | High | Headless server + separate GUI. No depth cameras; cameras only from P7. Detector inputs subscribe only while enabled, so `lazy` bridges stop idle cameras rendering (an always-on subscriber would keep them all rendering). RPP, not MPPI. RTF in the KPIs. Cap at 3 robots |
+| R3 | **Sim performance** (iGPU, 15 GB): 3x (1-3 gpu_lidars, depending on Rev C, + 3 RGB cameras) + 3x Nav2 | High | Headless server + separate GUI. No depth cameras; cameras only from P7. Detector inputs subscribe only while enabled, so `lazy` bridges stop idle cameras rendering (an always-on subscriber would keep them all rendering). RPP, not MPPI. RTF in the KPIs. Cap at 3 robots |
 | R4 | Headless rendering of sensors in CI (no GPU), and low RTF on a 4-vCPU runner | Med | EGL/Mesa software rendering (`--headless-rendering`). The nightly job is separate from the required PR checks and runs reduced profiles with timeouts in sim time; PR CI runs only non-rendering tests (mock hardware) |
 | R5 | **TF and clock**: missing `use_sim_time`, two publishers of `odom -> base_footprint`, namespace-prefixed frames (`robot1/odom`), our nodes on the global `/tf` while Nav2 listens on `/robotN/tf`, no `/clock`, IMU orientation that is ground truth | High | `enable_odom_tf: false` and `tf_frame_prefix_enable: false`; `SetRemap` of `/tf` and `/tf_static` for every robot-side node (§2.3); `/clock` bridged; launch-level `use_sim_time`; the EKF fuses only IMU yaw rate. Phase 1 checks frame ids and the `/robot1/tf` publishers under `namespace:=robot1` |
 | R6 | Map vs world misalignment breaks the generated masks | Med | Spawn at the layout origin; overlay test in Phase 2. Fallback: rasterize the map directly from `layout.yaml` |
