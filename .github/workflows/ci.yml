@@ -79,7 +79,8 @@ jobs:
       - name: Build
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon build --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          # --metas /dev/null skips colcon.meta, which turns tests off for local builds.
+          colcon build --metas /dev/null --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
       - name: Test
         run: |
           source /opt/ros/jazzy/setup.bash
