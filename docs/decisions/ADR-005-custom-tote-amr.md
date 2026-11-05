@@ -29,8 +29,17 @@ later Nav2 and safety parameters with it). Phase 1 delivers revisions A and B:
   `base_link` on the drive axle, which is the geometric centre (turns in place in its own circle).
 - Diff drive, wheel radius 0.075 m, separation 0.40 m. Wheels collide as spheres (a cylinder
   skewed in-place yaw odometry by 8-9 %); two frictionless ball casters.
-- Front-left `gpu_lidar` (`scan`) at the set-back corner of a scanner groove: 264°, 0.5°, 10 Hz,
-  0 self-hits. IMU at the base centre, 100 Hz, read through ros2_control.
+- A 360° `gpu_lidar` puck (`scan`) standing on the deck near the front edge, scan plane 0.34 m:
+  720 rays 0.5° apart, 10 Hz, 0 self-hits. IMU at the base centre, 100 Hz, read through
+  ros2_control.
+- A body in safety yellow and charcoal, built from simple parts that are easy to tell apart
+  (skirt, panels, bumpers, deck top, tote tray, emergency stop, status light). Each coloured part
+  is a fixed, massless link, because RViz draws all visuals of a link in one colour; the physics
+  still sees one collision box.
+- The lidar and the look are the owner's choices from the Phase 1 design review (2026-11-05). The
+  first Rev B had a front-left corner scanner in a groove round the body (264°, scan plane
+  0.20 m); the owner chose the puck instead, accepting that a loaded tote blocks much of its
+  rear view. Rear and low coverage is an open Phase 3 question (plan §2.6, Rev C).
 - Namespaced from day one: gz topics prefixed with the robot namespace, frames unprefixed,
   every gz sensor sets `<gz_frame_id>`.
 
@@ -58,6 +67,8 @@ follows in Phase 2; slam_toolbox only builds the map.
 | TurtleBot4 | A borrowed robot teaches less (no URDF, ros2_control or sensor design of our own) |
 | Kiva-style shelf lifter | Needs a different deck, docking and manipulation story (P13) |
 | Per-robot sensor profiles | Would need capability-aware task allocation; all robots stay identical |
+| Corner safety scanners low in the body (the first Rev B: a front-left 264° scanner in a groove, a rear-right twin planned for Rev C) | How industrial AMRs do it: low scan planes see small obstacles, and two diagonal scanners see past any load. The owner preferred the simpler puck on the deck (2026-11-05); Phase 3 may bring low scanners back |
+| A raised sensor head above the tote | Would see over a loaded tote, but makes the robot taller and busier; the owner chose the puck on the deck |
 | Gazebo `DiffDrive` system through the bridge | No hardware abstraction: mock hardware in CI and a future real robot would need a different launch path. Kept as the fallback if multi-robot `gz_ros2_control` blocks Phase 9 (plan R2) |
 | A `use_sim` boolean instead of `hardware:=` | Cannot express mock hardware |
 | Raw wheel odometry only | Wheel slip and yaw errors go uncorrected; real AMRs fuse an IMU |
@@ -72,11 +83,15 @@ follows in Phase 2; slam_toolbox only builds the map.
   (`warehouse_gazebo/test/test_gazebo_config.py`) checks the Gazebo-side files in every pull
   request: the world's systems, the bridged topics against the URDF, and the caster friction
   after Gazebo's URDF conversion.
-- Measured in Phase 1 (15 Gazebo test runs): rates 10 / 100 / 50 Hz (scan / imu / odom/wheel,
-  sim time); 0 scan self-hits; wheel odometry 0.01 % over 10 m and 0.00 % over a 360° turn;
+- Measured in Phase 1 (15 Gazebo test runs, corner scanner): rates 10 / 100 / 50 Hz (scan / imu /
+  odom/wheel, sim time); 0 scan self-hits; wheel odometry 0.01 % over 10 m and 0.00 % over a 360°
+  turn;
   EKF 0.1-0.4 % and at most 0.05 % (plan limits: 1 % and 2 %). The EKF integrates the
   controller's reported speed, which reads about 0.2 % high in Gazebo because the controller
-  manager's update stamps jitter (`warehouse_navigation/README.md`).
+  manager's update stamps jitter (`warehouse_navigation/README.md`). After the change to the puck
+  (2026-11-05; physics unchanged), measured again in headless Gazebo: scan at 10.0 Hz over 360°
+  (720 rays); 0 self-hits in 100 scans with the launch test's box beside the robot, and in 20
+  more with boxes beside, behind and in front of it.
 - The robot description is the single source for later phases: the Nav2 footprint (P3), safety
   fields (P3), docking geometry (P5) and camera placement (P7) are derived from or checked
   against `robot.yaml`.

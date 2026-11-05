@@ -18,14 +18,17 @@ TF, ros2_control, QoS or sim time, the
 
 - **Current phase (as of 2026-11-05):** Phase 1 (robot description and first drive in
   Gazebo) is **done, pending its pull request** from the branch `phase-1-robot-description`.
-  Every automated acceptance check passes and the
-  [learning report](phase-reports/phase-01-robot-description.md) is written. Still open: the
-  demo GIF (recorded by the maintainer, report exercise 7), the merge, and the `phase-1` tag.
+  Every automated acceptance check passed and the
+  [learning report](phase-reports/phase-01-robot-description.md) is written. The owner's design
+  review then gave the robot a 360° lidar puck on its deck and a new look (2026-11-05); the scan,
+  frame and drive checks were re-run by hand, the test suite runs again when checks resume.
+  Still open: the demo GIF (recorded by the maintainer, report exercise 7), the merge, and the
+  `phase-1` tag.
   Phase 2 (warehouse world, mapping, localization) is next.
 - **Last updated:** 2026-11-05
-- **What runs today** (on the Phase 1 branch): our own robot (revision B) drives by keyboard
-  in an empty Gazebo world through ros2_control, inside the `/robot1` namespace, with a 2D
-  scanner, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
+- **What runs today** (on the Phase 1 branch): our own robot (revision B, safety yellow and
+  charcoal) drives by keyboard in an empty Gazebo world through ros2_control, inside the
+  `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
   without a simulator, which CI tests on every pull request. Measured in Gazebo: sensor rates
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
   10 m, EKF within 0.09-0.42 %.
@@ -86,12 +89,19 @@ has a `wh_shell` function for that).
   turned into URDF by xacro. Revision B: the drivable base (rev A) plus the first sensors.
 - **What it does:** builds the robot for Gazebo (`hardware:=gz`) or for mock hardware without
   a simulator (`hardware:=mock`; `real` is reserved and refused): a 0.64 x 0.48 m, 35 kg
-  differential-drive base with sphere wheel collisions and frictionless casters, a front-left
-  2D scanner (`gpu_lidar`, 264°, 10 Hz) and an IMU (100 Hz) read through ros2_control.
+  differential-drive base with sphere wheel collisions and frictionless casters, a 360° lidar
+  puck on the deck (`gpu_lidar`, scan plane 0.34 m, 10 Hz) and an IMU (100 Hz) read through
+  ros2_control. The body is safety yellow and charcoal, built from parts that are easy to tell
+  apart: charcoal skirt and deck top, yellow panels, black bumpers, a grey tote tray, a red
+  emergency-stop button and a green status light (its colour is one property, which Phase 9
+  makes per robot).
+  Each coloured part is its own link, so RViz shows its colour too.
   `config/controllers.yaml` sets up `joint_state_broadcaster`, `diff_drive_controller` (hard
   limits in both directions of travel, unprefixed frames, no odometry transform) and
   `imu_sensor_broadcaster`. Every gz topic carries the robot namespace. A pytest checks the
-  URDF (frames, mass, namespaced topics) and `controllers.yaml` against `robot.yaml`.
+  URDF (frames, mass, namespaced topics, the lidar's full circle, that nothing but the lidar's
+  head reaches its scan plane, that every part stays inside the outline, one colour per link)
+  and `controllers.yaml` against `robot.yaml`.
 - **How to use it:** the launch files load it. To look at the URDF yourself:
 
   ```bash
@@ -160,9 +170,11 @@ has a `wh_shell` function for that).
   ros2 control list_controllers -c /robot1/controller_manager   # three controllers, all active
   ```
 
-  `colcon test && colcon test-result --verbose` reports `104 tests, 0 errors, 0 failures, 0
-  skipped` on a machine that can render (70-75 s); CI reports the 11 Gazebo launch test
-  cases as skipped.
+  Built with tests (`colcon build --symlink-install --metas /dev/null --cmake-args
+  -DBUILD_TESTING=ON`), `colcon test && colcon test-result --verbose` reported `104 tests, 0
+  errors, 0 failures, 0 skipped` on a machine that can render (70-75 s) before the 2026-11-05
+  design change, which replaces one description test with four (107 in total; not run yet,
+  checks are paused); CI reports the 11 Gazebo launch test cases as skipped.
 - **Where it lives:** `warehouse_bringup/` (`launch/`, `rviz/robot.rviz`, README with every
   argument and the checks to run by hand); lint rules in
   [ADR-003](decisions/ADR-003-formatting-and-linting.md) and the "New packages" section of
@@ -377,6 +389,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | Phase 1 acceptance reworded: after the key is released, the controller starts braking when `cmd_vel_timeout` (0.5 s) expires and stands still about 0.33 s later, at the -1.5 m/s² limit | "Stops within `cmd_vel_timeout`" cannot hold with a deceleration limit; the new wording is what the tests measure | adopted | Plan, Phase 1 |
 | 2026-11-05 | Phase 1 polish round before the pull request: the final review's six low findings and a fact-check of the learning report fixed (EKF explanation, RViz's absolute namespace, a discovery wait in the Gazebo test, the plan's references to ADR-005 and the static bridge file); the IMU sensor-name risk is now recorded in plan R2 and stays open until Phase 9. Two verifiers then checked the round, and a second, smaller round fixed what they found (the ROS side of the bridge test, the README status, the EKF speed explanation, two wordings) | Every document agrees with the code and with re-measured numbers before the merge | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
 | 2026-11-05 | Automatic checks paused: CI runs only by hand, `main` needs a pull request but no passing checks, the pre-commit hook is optional, and a plain `colcon build` builds without tests (`colcon.meta` at the workspace root passes `-DBUILD_TESTING=OFF` to every package) | The owner prefers to verify changes by building and running them while the project is under heavy development; the tests stay in the repository for later | adopted (until resumed) | [ADR-004](decisions/ADR-004-ci-pipeline.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-test) |
+| 2026-11-05 | The owner's design review of Phase 1: the 2D lidar becomes a 360° puck standing on the deck near the front edge (scan plane 0.34 m, 720 rays 0.5° apart) instead of a front-left corner scanner in a groove round the body (scan plane 0.20 m, 264°), accepting that a loaded tote blocks much of its rear view. The body is restyled in safety yellow and charcoal from simple, clearly separate parts (skirt, panels, bumpers, deck top, tote tray, emergency stop, status light); the status light's colour is one property, which Phase 9 turns into a per-robot argument | A simpler, familiar sensor layout and a robot that reads as a warehouse AMR. Found while building it: RViz draws all visuals of a link in one colour, so each coloured part is its own link. Open for Phase 3: what the puck cannot see (below 0.34 m, behind a tote), and when a tote is modelled on the robot (no phase does it yet) | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md), plan §2.6 (Rev B, Rev C) |
 | 2026-11-05 | The repository root is now the colcon workspace: the repository is cloned as `~/warehouse_ws`, packages moved to `src/`, `.gitignore` keeps `build/`, `install/` and `log/` out; CI, the dev container, README, CONTRIBUTING and the reports follow. History is kept (the move is one rename commit) | The owner wants one repository at the workspace root that VS Code finds directly; GitHub still finds the README, licence and `.github/` at the root | adopted | [ADR-006](decisions/ADR-006-workspace-root-repository.md) |
 
 ## Planned features

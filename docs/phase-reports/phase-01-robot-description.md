@@ -7,7 +7,8 @@
 - **Result:** our own tote-carrying robot (revision B) drives in an empty Gazebo world through
   ros2_control, inside the `/robot1` namespace, with a 2D scanner, an IMU and EKF odometry. The
   same launch file runs it on mock hardware without a simulator, which CI tests on every pull
-  request. Every automated acceptance check passes; the demo GIF is left to the maintainer
+  request. Every automated acceptance check passed (the design change of 2026-11-05 was then
+  checked by hand); the demo GIF is left to the maintainer
   ([exercise 7](#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
 
 This report is written for someone who has read the [Phase 0 report](phase-00-foundation.md)
@@ -29,6 +30,14 @@ was run against the headless simulation, and the GIF-conversion and size-check c
 Docker container (Ubuntu 24.04 with ffmpeg and gifsicle from `apt install`, which the laptop
 does not have) on a generated test clip instead of a screen recording. The teleop command was
 tested earlier with keys fed through a pseudo-terminal.
+
+After the owner's design review (2026-11-05) one more agent gave the robot a 360° lidar puck on
+its deck and a new look ([concept 14](#14-where-the-lidar-sits), timeline). It re-ran exercises
+2 and 4 and the measurements behind exercise 1's scan check with the launch test's own set-up.
+The test suite was not run with colcon, because checks are paused (ADR-004); only the
+description tests ran, directly with pytest. The test counts in exercise 1 and in
+[Measured results](#measured-results) follow from the tests that were added and removed, and are
+confirmed when checks resume.
 
 > **Words you will meet** (full list in the [Glossary](#glossary))
 >
@@ -68,6 +77,7 @@ tested earlier with keys fed through a pseudo-terminal.
   11. [Sim time and stamped commands](#11-sim-time-and-stamped-commands)
   12. [Launch files](#12-launch-files)
   13. [launch_testing](#13-launch_testing)
+  14. [Where the lidar sits](#14-where-the-lidar-sits)
 - [What happened](#what-happened)
 - [Measured results](#measured-results)
 - [Try it yourself](#try-it-yourself)
@@ -81,9 +91,9 @@ tested earlier with keys fed through a pseudo-terminal.
 Phase 1 built the robot every later phase drives:
 
 - **A robot of our own**, described once in `warehouse_description/config/robot.yaml` and turned
-  into a URDF by xacro: a 0.64 x 0.48 m, 35 kg differential-drive base with a front-left 2D
-  scanner (264°, 10 Hz) and an IMU (100 Hz). Revision A is the rolling chassis, revision B adds
-  the sensors.
+  into a URDF by xacro: a 0.64 x 0.48 m, 35 kg differential-drive base in safety yellow and
+  charcoal, with a 360° lidar puck on its deck (10 Hz) and an IMU (100 Hz). Revision A is the
+  rolling chassis, revision B adds the sensors.
 - **One description, three kinds of hardware** through ros2_control: Gazebo (`hardware:=gz`),
   a fake that needs no simulator (`hardware:=mock`), and a reserved `real` that the build
   refuses until a real driver exists.
@@ -108,7 +118,7 @@ looked clean left Gazebo running after every test. Each was found by measuring.
 |---|---|---|
 | Robot description | `warehouse_description/config/robot.yaml`, `urdf/*.xacro` | The robot's geometry, masses, sensors and limits from one YAML file; URDF for `gz` or `mock` hardware |
 | Controller configuration | `warehouse_description/config/controllers.yaml` | Controller manager (100 Hz), `joint_state_broadcaster`, `diff_drive_controller`, `imu_sensor_broadcaster` |
-| Description tests | `warehouse_description/test/test_description.py` | 16 pytest cases: URDF validity, frames, mass, friction, namespaced topics, `controllers.yaml` against `robot.yaml` |
+| Description tests | `warehouse_description/test/test_description.py` | 19 pytest cases: URDF validity, frames, mass, friction, namespaced topics, the lidar's full circle and scan plane, every part inside the outline, one colour per link, `controllers.yaml` against `robot.yaml` |
 | Gazebo world and spawning | `warehouse_gazebo/worlds/empty.sdf`, `launch/gazebo.launch.py`, `launch/spawn_robot.launch.py` | Starts Gazebo, spawns a robot, bridges `/clock` |
 | Bridge configuration | `warehouse_gazebo/config/robot_bridge.yaml` | `scan` and `ground_truth/odom` from Gazebo to ROS, one file for every robot |
 | Gazebo configuration tests | `warehouse_gazebo/test/test_gazebo_config.py` | 4 pytest cases without rendering, so CI runs them: the systems every world loads, the bridge file against the URDF, the caster friction after Gazebo's URDF conversion |
@@ -139,9 +149,12 @@ macros, conditionals and file includes, and generates the URDF.
   `${robot.drive.wheel_radius}` is 0.075. **No dimension in the URDF is typed twice.**
 - `xacro.fatal(...)` stops the build with a message: `hardware:=real` is reserved for a future
   real driver, and an unknown value such as `gazebo` is refused.
-- The robot is assembled from macros in separate files: `base.xacro` (body), `drive.xacro`
-  (wheels and casters), `lidar.xacro` (a scanner macro, used once now and again for the rear
-  scanner in Phase 3), `imu.xacro`, `ros2_control.xacro`, `gazebo.xacro` (ground truth).
+- The robot is assembled from macros in separate files, one macro per part: `base.xacro`
+  (frames, collision and inertia), `body.xacro` (chassis, yellow shell, bumpers), `deck.xacro`
+  (tote tray, emergency stop, status light), `drive.xacro` (wheels and casters), `lidar.xacro`
+  (the lidar puck, a macro a later sensor can reuse), `imu.xacro`, `ros2_control.xacro` and
+  `gazebo.xacro` (ground truth). `inertia.xacro` holds the inertia macros and `materials.xacro`
+  the colours.
 
 The project rule is **"geometry is generated, tuning is validated"** (plan §2.6). Geometry flows
 from `robot.yaml` into the URDF automatically. Files that cannot read `robot.yaml` themselves,
@@ -168,9 +181,15 @@ link to a child link: `fixed` (rigid), `continuous` (spins forever, like a wheel
   (REP-105). It has no inertia: KDL, the kinematics library `robot_state_publisher` uses, does
   not support inertia on the root link. A fixed joint lifts `base_link` 0.075 m, onto the drive
   axle, which is also the geometric centre, so the robot turns in place inside its own circle.
-- **Visuals vs collision.** The body has five visual blocks (lower body with wheel wells, a
-  scanner groove set back by 3 cm, the deck) but one collision box. Contacts do not care about
-  the groove, and one box is cheap for the physics engine.
+- **Visuals vs collision.** The body is drawn from simple boxes, cylinders and a sphere (a skirt, yellow
+  panels with a well for each wheel, bumpers that wrap round the corners, the deck top, a tote
+  tray, a stop button, a status light) but collides as one box. Contacts do not care about these
+  details, and one box is cheap for the physics engine.
+- **One colour per link.** RViz draws every visual of a link in the colour of the link's first
+  visual, so each part with a colour of its own is its own link: `shell_link` (yellow panels),
+  `front_bumper_link`, `tote_tray_link` and so on, on fixed joints and without mass. Gazebo merges
+  them into `base_footprint`, so the physics do not change.
+  [Problem 15](#15-rviz-drew-the-whole-body-in-one-colour) tells how this was found.
 - **Sphere wheels.** The wheels *look* like cylinders but *collide* as spheres. A cylinder
   touches the floor along a line; when the robot turns in place, the ends of that line drag,
   and in the prototype that skewed in-place yaw odometry by 8-9 %. A sphere touches in one point
@@ -204,11 +223,19 @@ the transform; RSP is `robot_state_publisher`:
 
 ```text
 odom ──(EKF)──> base_footprint ──(RSP)──> base_link
-                                          ├── lidar_front_link   (0.29, 0.21, 0.20 m, yaw 45°)
+                                          ├── lidar_front_link   (0.25, 0, 0.34 m: the scan plane)
                                           ├── imu_link
                                           ├── left_wheel_link, right_wheel_link  (joint_states)
-                                          └── front_caster_link, rear_caster_link
+                                          │   └── left_wheel_hub_link, right_wheel_hub_link
+                                          ├── front_caster_link, rear_caster_link
+                                          └── shell_link, front_bumper_link, rear_bumper_link,
+                                              tote_tray_link, emergency_stop_link,
+                                              status_light_link, lidar_front_mount_link
 ```
+
+The last group and the two hubs are the visual-only parts of concept 2: fixed joints, so
+`robot_state_publisher` sends them once on `tf_static`. RViz's TF display starts with them hidden
+(`rviz/robot.rviz`); tick them under TF > Frames to see them.
 
 - **`robot_state_publisher` (RSP)** reads the URDF from its `robot_description` parameter. It
   publishes the fixed joints once on `tf_static`, and the wheel joints on `tf` from the wheel
@@ -225,7 +252,9 @@ odom ──(EKF)──> base_footprint ──(RSP)──> base_link
 
 **Why industry does it.** Every sensor reports data in its own frame. With TF, a navigation
 stack can turn a scan point into a map position without knowing where the scanner is mounted;
-moving the scanner means changing one line of the URDF.
+moving the scanner means changing a few numbers. The design change of concept 14 moved it from a
+corner of the body onto the deck, and nothing that uses the scan had to change: it looks the
+lidar's pose up in TF.
 
 ### 4. ros2_control: hardware, controller manager, controllers
 
@@ -322,7 +351,9 @@ is a Gazebo plugin that adds a capability to the world, such as physics or senso
   with ogre2) and IMU. The package README explains each.
 - **The scanner is a `gpu_lidar`**: Gazebo renders the scene from the scanner's position and
   reads the depth. That is why it needs a GPU or EGL, why it sees *visuals* and not collisions,
-  and why CI cannot run it.
+  and why CI cannot run it. It also sees the robot's own visuals, so every part of the robot
+  stays out of its scan plane except the lidar's own head, which `range_min` (0.10 m) hides
+  (concept 14).
 - **gz topics are global.** All robots in one world share one gz-transport network, so a fixed
   `<topic>scan</topic>` would merge every robot's scans into one stream. The xacro prefixes
   every gz topic with the namespace: `/robot1/scan`, `/robot1/imu`,
@@ -610,6 +641,47 @@ every time.
 ignores SIGINT; those only show up when the real launch file runs. A launch test turns the
 acceptance criteria into something CI checks on every pull request.
 
+### 14. Where the lidar sits
+
+**What it is.** A 2D lidar measures distances in one horizontal plane, its *scan plane*. It sees
+only what crosses that plane: an obstacle below it, or behind something else, does not exist for
+it. Where the lidar sits therefore decides what the robot can see.
+
+**How it works here.** The first revision B did what industrial AMRs do: a scanner low in a
+corner of the body (scan plane 0.20 m), looking out through a groove that ran round the body,
+with a twin planned for the opposite corner in Rev C. Reviewing Phase 1, the owner chose a
+TurtleBot-style puck instead: a 360° lidar standing on the deck near the front edge, scan plane
+0.34 m, 720 rays 0.5° apart (`robot.yaml`, `lidar_front`). Three rules come with it:
+
+- **Nothing else in the plane.** `gpu_lidar` sees visuals, so every other part on the deck stays
+  at least 2 cm below the plane (tray rim 0.315 m, stop button 0.316 m, status light 0.318 m),
+  and `range_min` (0.10 m) hides the puck's own head (radius 0.04 m).
+  `test_only_the_lidar_head_reaches_the_scan_plane` checks the bounding box of every visual. In
+  Gazebo, 100 scans with a box beside the robot, and 20 more with boxes beside, behind and in
+  front of it, had 0 returns inside its outline.
+- **A full circle, each direction once.** The rays run from -180° to +179.5°: one more step
+  would point where the first ray does. 721 rays from -180° to +180° would measure straight back
+  twice.
+- **The warehouse follows the scan plane.** Shelves need a plinth of at least 0.40 m, so the
+  lidar sees continuous faces rather than single uprights (plan §2.6, fit rules).
+
+**What the puck cannot see.** Anything lower than 0.34 m: a pallet, forklift forks, a fallen
+box, and the 0.30 m bodies of other robots like this one, of which only the pucks cross the plane
+(Phase 9 runs three). And the rear, once a tote rides on the tray (no phase models one yet;
+plan §2.6, Rev C): the tote's front face is only 0.13 m behind the puck, so it hides about 100°
+behind the robot, and the scan then shows returns inside the robot's own outline that the
+costmaps and the collision monitor must not take for an obstacle. The Rev E camera mast will
+cross the plane too.
+
+**Why industry does it differently.** Industrial AMRs usually carry certified safety scanners
+close to the floor in two diagonally opposite corners: low, so they see small obstacles and
+feet; in the corners, so together they see all round the robot whatever it carries (safety
+scanners are sold for exactly this, about 270° each). A puck on top is the research and hobby robot's choice: one inexpensive sensor sees
+all round, as long as nothing on the robot blocks it. For this robot that holds while the deck is
+empty. Phase 3 (Rev C) revisits it: how the safety layer covers the rear behind a loaded tote and
+the obstacles below the plane, for example with low scanners, and how the robot's own tote and
+mast stay out of the scan.
+
 ## What happened
 
 ### Timeline
@@ -645,6 +717,14 @@ acceptance criteria into something CI checks on every pull request.
   `git restore` in exercises 2 and 6 fails before the files are committed, did not apply: they
   are committed. The full suite ran again: 104 tests, 0 failures, 0 skipped; 11 skipped with
   the CI switch.
+- **2026-11-05, design review.** The owner reviewed the robot and chose a 360° lidar puck on the
+  deck (scan plane 0.34 m) over the corner scanner in its groove (0.20 m, 264°), accepting that a
+  loaded tote will block much of the rear view, and a modular look in safety yellow and
+  charcoal. One agent rebuilt the description (one macro per part, one colour per link), rendered
+  it headless in Gazebo and RViz to tune the colours, checked the scan, the frames and driving in
+  headless Gazebo, and updated the tests and the documents (problems 15 and 16, concept 14).
+  Only the description tests ran (with pytest); the rest of the suite waits, because checks are
+  paused (ADR-004).
 
 ### The problems, and what they taught
 
@@ -767,7 +847,9 @@ Each story is told as symptom → cause → fix → lesson.
   world, where every ray misses.
 - *Cause:* with nothing to see, a blind, rotated or misplaced scanner also has zero self-hits.
 - *Fix:* the test spawns a box 2 m to the left and checks every return in world coordinates:
-  each run, 580 returns land on the box, 0 inside the outline, 0 anywhere else.
+  each run, 580 returns landed on the box in 20 scans of the first, corner-mounted scanner (520
+  for the lidar puck, measured by hand with the same set-up), 0 inside the outline, 0 anywhere
+  else.
 - *Lesson:* the Phase 0 lesson again, in a new place: a check is only evidence if you have seen
   it fail.
 
@@ -800,7 +882,8 @@ These cost time during verification and will cost you time too:
   (Harmonic, `gpu_lidar`, headless, Intel GPU): gz-common's signal handler stops the Sensors
   system inside an interrupted gz-transport publish, and the render thread deadlocks.
 - *Fix:* none in this repository; documented in `warehouse_system_tests/README.md`. CI is not
-  affected (it skips the Gazebo test). If every other case passed, re-run.
+  affected (it skips the Gazebo test). If every other case passed, re-run. With the lidar puck,
+  2 of 23 headless launches hung the same way when stopped, in line with the earlier rate.
 - *Lesson:* when a failure is not yours, find the upstream issue, compare the stack, record it,
   and keep your own checks strict.
 
@@ -818,6 +901,37 @@ These cost time during verification and will cost you time too:
 - The first explanation of the EKF's 0.1-0.4 % error, in `warehouse_navigation/README.md`
   ("trails speed changes; no slip for the IMU to correct"), was wrong. The review measured the
   real cause (concept 9), and the README now gives it. Measure before you explain.
+
+#### 15. RViz drew the whole body in one colour
+
+- *Symptom (design review):* rendered in RViz, the first body (an orange lower body, a black band
+  in the scanner groove and a grey deck, all visuals of `base_link`) was orange all over. With the
+  grey deck moved to be the first visual, the whole body turned grey. Gazebo showed all three
+  colours.
+- *Cause:* RViz 2's robot model (`rviz_default_plugins`, Jazzy) gives each primitive visual an
+  empty material name, so every visual of a link falls back to the material of the link's first
+  visual. Gazebo uses each visual's own material.
+- *Fix:* one colour per link. The coloured parts are fixed, massless links (`shell_link`,
+  `front_bumper_link`, `tote_tray_link`, ..., and a hub link below each wheel), which Gazebo
+  merges, so the physics do not change. `test_each_link_has_one_colour` keeps it that way, and
+  RViz's TF display starts with these frames hidden.
+- *Lesson:* a valid URDF can still be drawn differently by each tool. Look at it in every tool
+  that shows it.
+
+#### 16. Gazebo's colours are not RViz's
+
+- *Symptom:* the first safety yellow (0.80, 0.62, 0.02) looked olive in Gazebo, and the charcoal
+  deck looked mid-grey in Gazebo but black in RViz.
+- *Cause:* Gazebo's URDF converter (sdformat) multiplies a URDF colour by 1.25 and clips at 1
+  (`gz sdf -p` shows 0.5 turned into 0.625), and its ogre2 renderer lights in linear space and
+  outputs sRGB, which lifts dark colours and pulls a yellow's red and green together. Measured
+  from rendered pixels, Gazebo shows sRGB(L x 1.25 x colour), with L about 0.75 on tops lit by
+  the default sun, 0.5 on the front and 0.19 on faces in its shade. RViz shows the values as
+  they are, lit from the camera.
+- *Fix:* a palette checked in both renderers (`materials.xacro`): every channel at or below
+  0.8, a yellow with less green and no blue (0.80, 0.58, 0.0: hue about 52° in Gazebo, 43° in
+  RViz), charcoal at 0.09.
+- *Lesson:* a colour value is an input to a renderer, not a colour. Look at the output.
 
 ### Things that look wrong but are not
 
@@ -839,7 +953,10 @@ These cost time during verification and will cost you time too:
 
 Measured on the development laptop (Intel Iris Xe, headless EGL rendering) in a clean
 environment, in sim time. Ranges cover the build run, 15 test runs in the fix round, both final
-verifiers, the run for this report and the polish round's runs.
+verifiers, the run for this report and the polish round's runs. After the design change of
+2026-11-05 (lidar puck and new look; physics unchanged) the controllers, frames, scan and drive
+were measured again by hand in headless Gazebo, with the launch test's set-up for the scan
+check; the launch tests themselves wait until checks resume.
 
 | Acceptance criterion (plan, Phase 1) | Target | Measured | Status |
 |---|---|---|---|
@@ -850,8 +967,8 @@ verifiers, the run for this report and the polish round's runs.
 | `odom/wheel` frames | `odom` → `base_footprint` | as required | met |
 | Odometry, 10 m straight | < 1 % | wheels 0.006-0.01 %, EKF 0.09-0.42 % (over about 10.4 m) | met |
 | Odometry, 360° turn in place | < 2 % | wheels 0.00 %, EKF at most 0.05 % (over about 371°) | met |
-| Rates (±10 %) | scan 10, imu 100, odom/wheel 50 Hz | 10.0, 100.0, 49.9-50.0 Hz | met |
-| Scanner self-hits | 0 | 0 in the empty world (100 scans, 52,900 rays); with a box 2 m away, 580 returns on the box per run, 0 inside the outline | met |
+| Rates (±10 %) | scan 10, imu 100, odom/wheel 50 Hz | 10.0, 100.0, 49.9-50.0 Hz; the puck's scan again 10.00 Hz | met |
+| Scanner self-hits | 0 | Puck: 0 in 100 scans (72,000 rays) with a box 2 m away, all 2,600 returns on the box; 0 with boxes beside, behind and in front; the launch test's 20 scans see 520 returns on the box. Corner scanner before: 0 in the empty world (100 scans, 52,900 rays), 580 returns on the box per run | met |
 | Teleop stops after `cmd_vel_timeout` | stops | braking starts when the 0.5 s timeout expires; standstill about 0.85 s after the last command (0.5 s plus 0.33 s braking from 0.5 m/s at 1.5 m/s²). Real `teleop_twist_keyboard`, keys fed through a pseudo-terminal: still 0.5 m/s at +0.4 s, braking at +0.5 s, standing by +1.0 s | met |
 | xacro `gz` and `mock`, `real` refused, `check_urdf` | as stated | as stated; `real` exits with code 2 and the message | met |
 | Demo GIF: teleop with the RViz sensor view | recorded | not yet | **open** ([exercise 7](#exercise-7-run-the-demo-with-windows-and-record-the-gif)) |
@@ -860,7 +977,14 @@ Additional numbers:
 
 - Braking at the hard limit: 1.50 m/s² from +0.5 m/s and from -0.3 m/s (mock test, every PR).
 - Test suite: 104 tests, 0 failures, 0 skipped on the laptop (`colcon test` takes 70-75 s,
-  most of it the Gazebo test). In the CI configuration: 104 tests, 0 failures, 11 skipped.
+  most of it the Gazebo test). In the CI configuration: 104 tests, 0 failures, 11 skipped. Both
+  before the design change, which replaces one description test with four: 107 in total, not
+  run yet.
+- The design change, measured by hand in headless Gazebo: the scan has 720 rays from -180° to
+  +179.5° (360°) at 10.00 Hz in sim time; a 2 s drive at 0.3 m/s, stamped in sim time, moved
+  the robot 0.71 m and it stood still after `cmd_vel_timeout`; Gazebo's converted model still
+  has 33.000000000000007 kg in `base_footprint` and the same friction; 21 of 23 launches stopped
+  cleanly after one SIGINT (the other two hit problem 13).
 - CI job reproduced in `ros:jazzy-ros-base`: green in about 8.5 minutes, of which about 7.8
   minutes is `rosdep install` (Gazebo, ros2_control and RViz are now run dependencies). The
   first real GitHub run happens with the pull request.
@@ -872,7 +996,13 @@ Additional numbers:
 ### What was not verified
 
 - **GUI mode** (`sim.launch.py` with the Gazebo window and RViz on the desktop) and the GIF.
-  The headless server and the RViz configuration (under a virtual X server) were verified.
+  The headless server and the RViz configuration (under a virtual X server) were verified. The
+  new look was rendered headless only: Gazebo cameras with the default sun, and RViz in a
+  container under a virtual X server.
+- **The test suite after the design change** (checks paused): the 19 description tests passed
+  when run with `pytest` directly, and each new one failed on a mistake made on purpose; the
+  launch tests were not run, so their updated expectations (the TF tree, the scan's full circle)
+  were checked by hand only.
 - The GIF steps of exercise 7 on a real screen recording: the conversion and size-check
   commands ran in a container, on a generated test clip. The laptop has neither ffmpeg nor
   gifsicle; the exercise installs them with `sudo apt install`.
@@ -944,7 +1074,11 @@ workspace automatically.
 
 ### Exercise 1: build, test, and read the measured numbers
 
+Checks are paused (ADR-004), so a plain `colcon build` builds no tests (`colcon.meta`): build
+with them first.
+
 ```bash
+colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 colcon test && colcon test-result --verbose
 grep -hE "Measured rates|Scan check|odometry:|Braking from" \
   build/warehouse_system_tests/launch_test/*.txt
@@ -956,8 +1090,12 @@ tests use that domain too, and a second `/robot1/controller_manager` would confu
 Expect:
 
 ```text
-Summary: 104 tests, 0 errors, 0 failures, 0 skipped
+Summary: 107 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+(107: the design change of 2026-11-05 replaced one description test with four; the last full
+run, just before it, reported 104. The scan check line below was measured with the test's own
+set-up after the change; the full run is repeated when checks resume.)
 
 and numbers like these (yours will differ in the last digits). Two of the lines begin with the
 name of another test case, such as `test_05_tf_stays_in_the_namespace (...) ... Measured
@@ -966,7 +1104,7 @@ printed line can land after a later test's name. Ignore that prefix.
 
 ```text
 Measured rates (sim time): {'scan': 10.0, 'imu': 100.0, 'odom/wheel': 50.0}
-Scan check: 20 scans, 580 returns on the target, 0 inside the outline, 0 elsewhere
+Scan check: 20 scans, 520 returns on the target, 0 inside the outline, 0 elsewhere
 wheel odometry: 10.388 m forward, 0.000 m left, truth 10.389 / 0.000 m, error 0.01 %
 fused odometry: 10.402 m forward, 0.015 m left, truth 10.389 / 0.000 m, error 0.19 %
 wheel odometry: turned 371.23 deg, truth 371.22 deg, error 0.00 %
@@ -984,7 +1122,7 @@ colcon test-result
 ```
 
 The Gazebo file reports `11 tests, 0 errors, 0 failures, 11 skipped`, the mock file `7 tests,
-0 errors, 0 failures, 0 skipped`, and the total becomes `104 tests, 0 errors, 0 failures, 11
+0 errors, 0 failures, 0 skipped`, and the total becomes `107 tests, 0 errors, 0 failures, 11
 skipped`: skipped, not passed and not missing. Run `colcon test` once more without the variable
 to get back to 0 skipped.
 
@@ -997,8 +1135,10 @@ check_urdf /tmp/robot.urdf
 ```
 
 `check_urdf` prints `Successfully Parsed XML`, `root Link: base_footprint has 1 child(ren)`,
-then `base_link` with six children: the two casters, `imu_link`, the two wheels and
-`lidar_front_link`. Now ask for the reserved hardware:
+then `base_link` with 13 children: the two casters, `imu_link`, the two wheels (each with its
+hub link below it), `lidar_front_link` and `lidar_front_mount_link`, and the visual-only parts
+`emergency_stop_link`, `front_bumper_link`, `rear_bumper_link`, `shell_link`,
+`status_light_link` and `tote_tray_link` (concept 2). Now ask for the reserved hardware:
 
 ```bash
 xacro $(ros2 pkg prefix warehouse_description)/share/warehouse_description/urdf/robot.urdf.xacro \
@@ -1094,10 +1234,10 @@ ros2 run tf2_tools view_frames --ros-args -r /tf:=/robot1/tf -r /tf_static:=/rob
 cd ~/warehouse_ws
 ```
 
-Open the `frames_<date>.pdf` it names: `odom → base_footprint → base_link → six children`,
-exactly concept 3. The static transforms show a rate of `10000` (sent once on `tf_static`),
-`base_footprint` about 50 Hz (the EKF), the wheels about 20 Hz (`robot_state_publisher`'s
-publish rate). Without the remap, `view_frames` would find an empty tree. Leave the simulation
+Open the `frames_<date>.pdf` it names: `odom → base_footprint → base_link → 13 children`, with
+a hub below each wheel, exactly concept 3. The static transforms show a rate of `10000` (sent
+once on `tf_static`), `base_footprint` about 50 Hz (the EKF), the wheels about 20 Hz
+(`robot_state_publisher`'s publish rate). Without the remap, `view_frames` would find an empty tree. Leave the simulation
 running for exercise 5.
 
 ### Exercise 5: the wall-clock trap
@@ -1136,9 +1276,11 @@ ros2 topic pub -s -r 10 -t 5 /robot1/cmd_vel geometry_msgs/msg/TwistStamped '{he
 ### Exercise 6: tuning is validated
 
 Change the wheel radius in the single source, but not in `controllers.yaml`, and run the
-description tests:
+description tests. They must be built first, because a plain `colcon build` builds no tests
+while checks are paused (skip that line if exercise 1 built them):
 
 ```bash
+colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 sed -i 's/^  wheel_radius: 0.075$/  wheel_radius: 0.080/' \
   src/warehouse_description/config/robot.yaml
 colcon test --packages-select warehouse_description
@@ -1178,7 +1320,8 @@ ros2 launch warehouse_bringup sim.launch.py
 ```
 
 The Gazebo window and RViz open (the first start can take half a minute). RViz shows the robot
-model, its TF frames and the two odometries (EKF and wheels); the Fixed Frame is `odom`. If a window does not open,
+model, its TF frames (the visual-only parts' frames start hidden) and the two odometries (EKF and
+wheels); the Fixed Frame is `odom`. If a window does not open,
 check `echo $DISPLAY` in that terminal: it must not be empty.
 
 **Terminal 2: give the scanner something to see.** The world is empty, so the scan has no
@@ -1303,6 +1446,7 @@ The problem stories above each end with their lesson. These are the everyday pit
 | REP | ROS Enhancement Proposal; REP-103 (units, axes) and REP-105 (frame names) apply here |
 | `robot_state_publisher` (RSP) | Publishes the URDF and the transforms of the robot's links |
 | ros_gz bridge | `ros_gz_bridge`: copies messages between gz-transport and ROS 2 |
+| scan plane | The horizontal plane a 2D lidar measures in, here 0.34 m above the floor; the lidar sees only what crosses it |
 | SDF | Simulation Description Format, Gazebo's model and world format |
 | SIGINT | The interrupt signal: what Ctrl-C sends, and what launch sends to each process it started when it shuts down |
 | sim time | The simulator's clock on `/clock`, used when `use_sim_time` is true |
@@ -1348,6 +1492,8 @@ The problem stories above each end with their lesson. These are the everyday pit
 Phase 2 builds the warehouse: a world generated from one `layout.yaml` (shelves, aisles,
 docks), a map made once with slam_toolbox, and AMCL localization on that map, which adds the
 `map -> odom` transform above the EKF. Its acceptance includes the localization accuracy that
-concept 9 left open, and the IMU noise check of revision B. Its report will be
+concept 9 left open, and the IMU noise check of revision B. Its shelves follow the fit rules of
+plan §2.6, among them a plinth of at least 0.40 m, so the lidar sees continuous shelf faces
+(concept 14). Its report will be
 `docs/phase-reports/phase-02-<name>.md`, and its features will appear in
 [PROJECT_STATUS.md](../PROJECT_STATUS.md).
