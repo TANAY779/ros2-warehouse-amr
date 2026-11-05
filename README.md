@@ -51,9 +51,11 @@ cd ~/warehouse_ws
 vcs import --input src/ros2-warehouse-amr/dependencies.repos src
 rosdep update
 rosdep install --from-paths src --ignore-src -y
-colcon build --symlink-install
-colcon test && colcon test-result --verbose
+colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
 ```
+
+Tests and CI are paused while the project is under heavy development; see
+[CONTRIBUTING.md](CONTRIBUTING.md#build-and-test) to run them.
 
 First time using rosdep on this machine? Run `sudo rosdep init` once before `rosdep update`.
 
@@ -89,7 +91,8 @@ has ROS 2 Jazzy, Gazebo Harmonic and all lint tools; the workspace is at `/home/
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and the branch, commit and review
-workflow. One-time setup on a native install:
+workflow. The pre-commit hook is optional while checks are paused; one-time setup on a
+native install:
 
 ```bash
 sudo apt install pre-commit clang-format

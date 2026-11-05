@@ -3,10 +3,11 @@
 # (see docs/decisions/ADR-004-ci-pipeline.md).
 name: CI
 
+# Paused on 2026-11-05 at the owner's request while the project is under heavy development:
+# the workflow runs only when started by hand (Actions -> CI -> Run workflow). To resume it,
+# restore the push (branches: [main]) and pull_request triggers, and add the two job names
+# back as required checks of the "Protect main" ruleset (ADR-004).
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:

@@ -1,6 +1,6 @@
 # ADR-004: CI runs plain rosdep/colcon steps in the official ROS image
 
-- **Status:** accepted
+- **Status:** accepted; paused since 2026-11-05 (see the update at the end)
 - **Date:** 2026-11-02
 - **Plan reference:** Phase 0 (replaces the planned `ros-tooling/action-ros-ci`)
 
@@ -64,3 +64,13 @@ environment variables:
   packages' run dependencies), even though CI skips the Gazebo tests.
 - `colcon test-result` reports the Gazebo test cases as skipped in CI. A skipped count above
   zero is expected there; locally it should be zero.
+
+## Update 2026-11-05: CI paused
+
+The owner paused the automatic checks while the project is under heavy development: changes
+are verified by building and running them. The workflow now runs only when started by hand
+(`workflow_dispatch`), the "Protect main" ruleset no longer requires the two checks (a pull
+request is still required), and the pre-commit hook is optional. Nothing was deleted: the
+workflow, the lint configuration and every test stay in the repository. To resume, restore the
+`push` and `pull_request` triggers in `ci.yml` and add `Lint (pre-commit)` and
+`Build & test (ROS 2 Jazzy)` back as required status checks.

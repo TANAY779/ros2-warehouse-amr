@@ -224,6 +224,9 @@ has a `wh_shell` function for that).
 
 ### Continuous integration (GitHub Actions)
 
+- **Status:** paused since 2026-11-05 at the owner's request: the workflow runs only when
+  started by hand (Actions → CI → Run workflow). The description below is how it works when
+  it runs; [ADR-004](decisions/ADR-004-ci-pipeline.md) says how to resume it.
 - **What it is:** a workflow that runs on every pull request, on every push to `main`, and on
   demand.
 - **What it does:** job **Lint (pre-commit)** runs every pre-commit hook on every file; job
@@ -248,12 +251,14 @@ has a `wh_shell` function for that).
 ### Branch protection (ruleset "Protect main")
 
 - **What it is:** a GitHub repository ruleset on the default branch.
-- **What it does:** changes reach `main` only through a pull request, and only when both CI
-  checks (`Lint (pre-commit)` and `Build & test (ROS 2 Jazzy)`) pass. Force-pushes and
-  deleting `main` are blocked. No approving review is required (single maintainer).
+- **What it does:** changes reach `main` only through a pull request. Force-pushes and
+  deleting `main` are blocked. While CI is paused (since 2026-11-05) the two CI checks
+  (`Lint (pre-commit)` and `Build & test (ROS 2 Jazzy)`) are not required; the recreation
+  steps below include them for when CI resumes. No approving review is required (single maintainer).
 - **How to use it:** work on a branch, push it, open a PR, merge when green. Inspect the
   rules with `gh api repos/TANAY779/ros2-warehouse-amr/rules/branches/main --jq '.[].type'`
-  (prints `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks`).
+  (prints `deletion`, `non_fast_forward`, `pull_request`; `required_status_checks` too when CI
+  is active).
 - **Where it lives:** GitHub repository settings (Settings → Rules → Rulesets), not in the
   repository. To recreate it (for example on a fork): new branch ruleset named "Protect
   main", enforcement **Active**, no bypass list, target **Default branch**; enable **Restrict
@@ -372,6 +377,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | Launch files keep rcutils' default log format: `sim.launch.py` no longer sets `RCUTILS_CONSOLE_OUTPUT_FORMAT`, and plan §6 says to override it only to add fields | The value it set was rcutils' built-in default (`[{severity}] [{time}] [{name}]: {message}`), so it changed nothing, and a reader would copy a no-op | adopted | Plan §6 |
 | 2026-11-05 | Phase 1 acceptance reworded: after the key is released, the controller starts braking when `cmd_vel_timeout` (0.5 s) expires and stands still about 0.33 s later, at the -1.5 m/s² limit | "Stops within `cmd_vel_timeout`" cannot hold with a deceleration limit; the new wording is what the tests measure | adopted | Plan, Phase 1 |
 | 2026-11-05 | Phase 1 polish round before the pull request: the final review's six low findings and a fact-check of the learning report fixed (EKF explanation, RViz's absolute namespace, a discovery wait in the Gazebo test, the plan's references to ADR-005 and the static bridge file); the IMU sensor-name risk is now recorded in plan R2 and stays open until Phase 9. Two verifiers then checked the round, and a second, smaller round fixed what they found (the ROS side of the bridge test, the README status, the EKF speed explanation, two wordings) | Every document agrees with the code and with re-measured numbers before the merge | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
+| 2026-11-05 | Automatic checks paused: CI runs only by hand, `main` needs a pull request but no passing checks, the pre-commit hook is optional, and the default build is `colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF` | The owner prefers to verify changes by building and running them while the project is under heavy development; the tests stay in the repository for later | adopted (until resumed) | [ADR-004](decisions/ADR-004-ci-pipeline.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-test) |
 
 ## Planned features
 

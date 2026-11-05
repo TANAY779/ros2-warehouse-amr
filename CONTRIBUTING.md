@@ -4,7 +4,8 @@
 
 - **One branch per phase or feature:** `phase-<N>-<short-name>` (e.g. `phase-1-robot-description`)
   or `feat/<short-name>`.
-- **Pull request into `main`** using the PR template. CI must be green before merging.
+- **Pull request into `main`** using the PR template. CI is paused (since 2026-11-05, see
+  [Build and test](#build-and-test)): build and run what you changed before merging.
 - **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/), with
   the package as the scope:
 
@@ -54,6 +55,16 @@ From the workspace root (`~/warehouse_ws`):
 source /opt/ros/jazzy/setup.bash
 vcs import --input src/ros2-warehouse-amr/dependencies.repos src
 rosdep install --from-paths src --ignore-src -y
+colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
+```
+
+**Checks are paused** while the project is under heavy development (decided 2026-11-05):
+GitHub CI runs only when started by hand (Actions → CI → Run workflow), `main` requires a pull
+request but no passing checks, and the pre-commit hook is optional. Build without tests as
+above (`-DBUILD_TESTING=OFF` also skips the lint test dependencies) and verify a change by
+running it. The tests and lint configuration stay in the repository; to run them all:
+
+```bash
 colcon build --symlink-install
 colcon test && colcon test-result --verbose
 (cd src/ros2-warehouse-amr && pre-commit run --all-files)
