@@ -4,8 +4,15 @@
 
   Joint frames stay aligned with base_link and the wheels turn about +y, so a positive
   wheel velocity drives the robot forward on both sides, as diff_drive_controller expects.
+
+  A wheel looks like a black tyre with a grey hub. The hub is a link of its own (one colour per
+  link, materials.xacro), fixed to the wheel so it turns with it.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Cosmetic: the hub's radius, and how far it stands out of each side of the tyre. -->
+  <xacro:property name="hub_radius" value="0.045"/>
+  <xacro:property name="hub_proud" value="0.002"/>
 
   <xacro:macro name="wheel" params="side reflect">
     <xacro:property name="drive" value="${robot.drive}"/>
@@ -21,13 +28,13 @@
     </joint>
 
     <link name="${side}_wheel_link">
-      <visual name="${side}_wheel_visual">
+      <visual name="${side}_tyre">
         <!-- URDF cylinders lie along z: roll them by 90 degrees onto the y axle. -->
         <origin xyz="0 0 0" rpy="${pi / 2.0} 0 0"/>
         <geometry>
           <cylinder radius="${drive.wheel_radius}" length="${drive.wheel_width}"/>
         </geometry>
-        <material name="rubber_black"/>
+        <material name="tyre_black"/>
       </visual>
       <!-- A sphere, not a cylinder (plan R13). A cylinder touches the floor along a line
            whose ends drag when the robot turns in place, which skewed yaw odometry by
@@ -52,6 +59,22 @@
       <mu1>1.0</mu1>
       <mu2>1.0</mu2>
     </gazebo>
+
+    <!-- The hub: visual only and massless; Gazebo merges it into the wheel link. -->
+    <joint name="${side}_wheel_hub_joint" type="fixed">
+      <parent link="${side}_wheel_link"/>
+      <child link="${side}_wheel_hub_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <link name="${side}_wheel_hub_link">
+      <visual name="${side}_hub">
+        <origin xyz="0 0 0" rpy="${pi / 2.0} 0 0"/>
+        <geometry>
+          <cylinder radius="${hub_radius}" length="${drive.wheel_width + 2.0 * hub_proud}"/>
+        </geometry>
+        <material name="hub_grey"/>
+      </visual>
+    </link>
   </xacro:macro>
 
   <xacro:macro name="caster" params="position reflect">

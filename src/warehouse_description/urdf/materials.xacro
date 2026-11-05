@@ -1,27 +1,55 @@
 <?xml version="1.0"?>
 <!--
-  Colours shared by RViz and Gazebo. Gazebo turns a URDF <material> colour into the
-  ambient and diffuse colour of the visual.
+  The robot's colours, shared by RViz and Gazebo: safety yellow and charcoal, with black,
+  grey and two signal colours.
+
+  One colour per link. RViz 2 (Jazzy) draws every <visual> of a link in the material of the
+  link's first visual, so a part with its own colour is its own link (body.xacro, deck.xacro).
+  test_description.py checks that no link mixes colours.
+
+  Gazebo turns a URDF colour into the ambient and diffuse colour of the visual, but its URDF
+  converter (sdformat) first multiplies it by 1.25 and clips at 1. A channel above 0.8 therefore
+  shows at full strength in Gazebo and the colour loses its hue: keep every channel at or below
+  0.8.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <material name="body_orange">
-    <color rgba="0.95 0.50 0.10 1.0"/>
+  <!-- The status light's colour: the one place to change it. Phase 9, which gives every robot
+       its own colour, turns it into a xacro argument (like namespace). -->
+  <xacro:property name="status_light_rgba" value="0.05 0.70 0.15 1.0"/>
+
+  <material name="charcoal">          <!-- chassis: skirt, wheel arches, deck top -->
+    <color rgba="0.09 0.095 0.105 1.0"/>
   </material>
-  <material name="scanner_band_black">
-    <color rgba="0.12 0.12 0.12 1.0"/>
+  <material name="safety_yellow">     <!-- body panels (the shell) -->
+    <color rgba="0.80 0.58 0.0 1.0"/>
   </material>
-  <material name="deck_grey">
-    <color rgba="0.55 0.57 0.60 1.0"/>
+  <material name="bumper_black">
+    <color rgba="0.025 0.025 0.025 1.0"/>
   </material>
-  <material name="rubber_black">
-    <color rgba="0.05 0.05 0.05 1.0"/>
+  <material name="tray_grey">
+    <color rgba="0.40 0.41 0.43 1.0"/>
+  </material>
+  <material name="puck_graphite">     <!-- the lidar puck's fixed base -->
+    <color rgba="0.25 0.26 0.28 1.0"/>
+  </material>
+  <material name="puck_black">        <!-- the lidar puck's spinning head -->
+    <color rgba="0.03 0.03 0.035 1.0"/>
+  </material>
+  <material name="tyre_black">
+    <color rgba="0.03 0.03 0.03 1.0"/>
+  </material>
+  <material name="hub_grey">
+    <color rgba="0.45 0.46 0.48 1.0"/>
   </material>
   <material name="caster_grey">
-    <color rgba="0.35 0.35 0.35 1.0"/>
+    <color rgba="0.40 0.40 0.42 1.0"/>
   </material>
-  <material name="sensor_yellow">
-    <color rgba="0.95 0.80 0.10 1.0"/>
+  <material name="stop_red">          <!-- emergency stop button -->
+    <color rgba="0.78 0.04 0.03 1.0"/>
+  </material>
+  <material name="status_light">
+    <color rgba="${status_light_rgba}"/>
   </material>
 
 </robot>
