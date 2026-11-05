@@ -41,7 +41,9 @@ parts that are easy to tell apart.
 | `urdf/imu.xacro` | The IMU link and its gz `imu` sensor with Gaussian noise |
 | `urdf/ros2_control.xacro` | The `<ros2_control>` block (wheel velocity commands, wheel and IMU states) with the hardware plugin for `gz` or `mock`, and the `gz_ros2_control` system plugin for `gz` |
 | `urdf/gazebo.xacro` | Gazebo-only systems: the ground-truth `OdometryPublisher` |
+| `warehouse_description/robot_config.py` | Python module: `robot_config.load()` returns `robot.yaml` as a frozen dataclass plus the numbers derived from it (half length and width, inscribed and circumscribed radii with and without padding, the scan plane height, the outline as a polygon and as Nav2's `footprint` string). Other packages' Python code uses it instead of copying numbers (the warehouse layout's fit rules now, Nav2 checks later) |
 | `test/test_description.py` | pytest: builds the xacro for every `hardware`, runs `check_urdf`, and checks frames, mass, namespaced gz topics, the lidar (pose, full circle, nothing but its head in the scan plane), that every visual stays inside the outline, one colour per link, and `controllers.yaml` against `robot.yaml` |
+| `test/test_robot_config.py` | pytest: `robot_config` against `robot.yaml` and a made-up robot, and a check that the module repeats no value from `robot.yaml` |
 
 ## Arguments
 
@@ -50,7 +52,14 @@ parts that are easy to tell apart.
 | `namespace` | e.g. `robot1` (default empty) | Prefixes every gz transport topic (`/robot1/scan`) and puts the controller manager in `/robot1`. gz topics are global, so without the prefix all robots would share one topic (plan R12). Frames are never prefixed (D7) |
 | `hardware` | `gz` (default), `mock`, `real` | `gz`: `gz_ros2_control/GazeboSimSystem` plus the Gazebo plugins. `mock`: `mock_components/GenericSystem` with `calculate_dynamics`, no Gazebo plugins. `real` is reserved for a future `SystemInterface` and stops xacro with a clear message, as does any unknown value |
 
-Build and check the URDF by hand (after `colcon build` and sourcing the workspace):
+The robot's numbers in Python (after `colcon build` and sourcing the workspace):
+
+```bash
+python3 -c "from warehouse_description import robot_config as rc; c = rc.load(); print(c.r_circumscribed_padded, c.scan_plane_height)"
+# 0.45607017003965516 0.34
+```
+
+Build and check the URDF by hand:
 
 ```bash
 xacro $(ros2 pkg prefix warehouse_description)/share/warehouse_description/urdf/robot.urdf.xacro \
@@ -175,3 +184,6 @@ with tests first:
 colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 colcon test --packages-select warehouse_description && colcon test-result --verbose
 ```
+
+`test_robot_config.py` needs no test build: after a plain build, run
+`python3 -m pytest src/warehouse_description/test/test_robot_config.py -q`.
