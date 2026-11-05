@@ -68,10 +68,15 @@ follows in Phase 2; slam_toolbox only builds the map.
 
 - One launch path for every hardware option: `warehouse_bringup/launch/sim.launch.py
   hardware:=gz|mock`. Mock hardware tests the wiring in every pull request without Gazebo;
-  Gazebo tests run locally (and nightly from Phase 6).
+  Gazebo tests run locally (and nightly from Phase 6). A render-free test
+  (`warehouse_gazebo/test/test_gazebo_config.py`) checks the Gazebo-side files in every pull
+  request: the world's systems, the bridged topics against the URDF, and the caster friction
+  after Gazebo's URDF conversion.
 - Measured in Phase 1 (15 Gazebo test runs): rates 10 / 100 / 50 Hz (scan / imu / odom/wheel,
   sim time); 0 scan self-hits; wheel odometry 0.01 % over 10 m and 0.00 % over a 360° turn;
-  EKF 0.1-0.4 % and at most 0.05 % (plan limits: 1 % and 2 %).
+  EKF 0.1-0.4 % and at most 0.05 % (plan limits: 1 % and 2 %). The EKF integrates the
+  controller's reported speed, which reads about 0.2 % high in Gazebo because the controller
+  manager's update stamps jitter (`warehouse_navigation/README.md`).
 - The robot description is the single source for later phases: the Nav2 footprint (P3), safety
   fields (P3), docking geometry (P5) and camera placement (P7) are derived from or checked
   against `robot.yaml`.

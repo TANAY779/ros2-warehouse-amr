@@ -1,6 +1,6 @@
 # Phase 1 report: the robot, its controllers and the first drive in Gazebo
 
-- **Milestone:** M1 Core AMR (Phase 1 of 6)
+- **Milestone:** M1 Core AMR (Phases 1-6; this is the first)
 - **Dates:** 2026-11-05
 - **Branch / tag:** `phase-1-robot-description`; tag `phase-1` after the pull request merges
   (not yet created as of 2026-11-05)
@@ -14,16 +14,21 @@ This report is written for someone who has read the [Phase 0 report](phase-00-fo
 and knows basic Linux, Python and C++, but is new to robot descriptions, ros2_control and
 Gazebo. It explains what was built, why each piece exists, what went wrong on the way, and how
 to try every piece yourself. Paths are relative to the repository root unless they start with
-`~/warehouse_ws`.
+`~/warehouse_ws`. "The plan" is [docs/PROJECT_PLAN.md](../PROJECT_PLAN.md); "plan §2.4" means
+section 2.4 there.
 
 The files were written and verified with AI assistance (Claude Code agents). One agent built
 the five packages; a review found four medium and four low issues, which a second agent fixed;
 three independent verifiers then reproduced CI, measured the acceptance criteria in headless
-Gazebo, and reviewed the code against the upstream Jazzy sources. Every command in
-[Try it yourself](#try-it-yourself) was run again for this report in a clean shell, except the
-windowed parts of exercise 7 (Gazebo and RViz on a desktop, teleop by hand, screen recording);
-its box-spawn and GIF-conversion commands were run, and the teleop command was tested earlier
-with keys fed through a pseudo-terminal.
+Gazebo, and reviewed the code against the upstream Jazzy sources; a polish round fixed their
+six low findings, and a second, smaller round fixed what a check of the first one found. Every
+command in [Try it yourself](#try-it-yourself) was run again after the first polish round (the
+second changed no exercise), in a clean shell, except the windowed parts of exercise 7 (Gazebo
+and RViz on a desktop, teleop by hand, screen recording). Of exercise 7, the box-spawn command
+was run against the headless simulation, and the GIF-conversion and size-check commands in a
+Docker container (Ubuntu 24.04 with ffmpeg and gifsicle from `apt install`, which the laptop
+does not have) on a generated test clip instead of a screen recording. The teleop command was
+tested earlier with keys fed through a pseudo-terminal.
 
 > **Words you will meet** (full list in the [Glossary](#glossary))
 >
@@ -86,7 +91,8 @@ Phase 1 built the robot every later phase drives:
   under `/robot1`, so Phase 9 can add more robots without rewiring.
 - **Odometry from an EKF** that fuses the wheels with the IMU's yaw rate.
 - **Tests that start the real system:** a mock-hardware launch test runs in CI on every pull
-  request; a Gazebo launch test checks every Phase 1 acceptance criterion locally.
+  request; a Gazebo launch test checks every Phase 1 acceptance criterion locally. CI cannot
+  render, so a second kind of test reads the Gazebo-side files without starting Gazebo.
 
 Measured in Gazebo: sensor rates 10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within
 0.01 % of ground truth over 10 m, EKF within 0.09-0.42 % (the limit is 1 %).
@@ -105,6 +111,7 @@ looked clean left Gazebo running after every test. Each was found by measuring.
 | Description tests | `warehouse_description/test/test_description.py` | 16 pytest cases: URDF validity, frames, mass, friction, namespaced topics, `controllers.yaml` against `robot.yaml` |
 | Gazebo world and spawning | `warehouse_gazebo/worlds/empty.sdf`, `launch/gazebo.launch.py`, `launch/spawn_robot.launch.py` | Starts Gazebo, spawns a robot, bridges `/clock` |
 | Bridge configuration | `warehouse_gazebo/config/robot_bridge.yaml` | `scan` and `ground_truth/odom` from Gazebo to ROS, one file for every robot |
+| Gazebo configuration tests | `warehouse_gazebo/test/test_gazebo_config.py` | 4 pytest cases without rendering, so CI runs them: the systems every world loads, the bridge file against the URDF, the caster friction after Gazebo's URDF conversion |
 | Odometry EKF | `warehouse_navigation/config/ekf.yaml`, `launch/ekf.launch.py` | `robot_localization` EKF: `odom` and `odom -> base_footprint` |
 | Bring-up | `warehouse_bringup/launch/sim.launch.py`, `launch/robot.launch.py`, `rviz/robot.rviz` | Entry point: world, robot and RViz; the robot scope on its own |
 | System tests | `warehouse_system_tests/test/test_mock_bringup.py`, `test/test_gz_bringup.py`, `warehouse_system_tests/ros_helpers.py` | launch_testing: mock (CI) and Gazebo (local) |
@@ -192,7 +199,8 @@ transform is published as a message on the topic `/tf` (moving parts) or `/tf_st
 parts, sent once and kept for late subscribers). Any node can ask "where was `lidar_front_link`
 relative to `odom` at time t?" and tf2 chains the transforms.
 
-**How it works here.** The Phase 1 tree (plan §2.4):
+**How it works here.** The Phase 1 tree (plan §2.4). Each arrow names the node that publishes
+the transform; RSP is `robot_state_publisher`:
 
 ```text
 odom ──(EKF)──> base_footprint ──(RSP)──> base_link
@@ -426,20 +434,24 @@ a sensor with a small variance pulls the estimate harder.
   (noise grows fast, and gravity leaks in through any tilt); a planar robot at warehouse speeds
   does not need them. The gyro's yaw rate, however, is exactly what wheels get wrong on a real
   robot (slip while turning), so it is the useful complement.
-- **Weights.** Wheel yaw-rate variance 0.01 against IMU yaw-rate variance 4e-6 (σ = 0.002 rad/s
-  squared): the IMU dominates the heading, the wheels give the speed.
+- **Weights.** Wheel yaw-rate variance 0.01 against IMU yaw-rate variance 4e-6 (the gyro noise
+  σ of 0.002 rad/s, squared): the IMU dominates the heading, the wheels give the speed.
 - **`two_d_mode: true`** keeps z, roll and pitch at zero. `world_frame: odom` makes the EKF
   publish `odom -> base_footprint`, and its output `odometry/filtered` is remapped to `odom`,
   the name Nav2 expects.
 
 **What the numbers say.** In Gazebo the EKF's end point is 0.09-0.42 % off over 10 m, while the
-wheel odometry alone is 0.01 % off. The final review measured why: the EKF integrates the
-*twist* the controller reports, and in Gazebo that twist reads about 0.2 % high (1.002 m/s at a
-true 1.000 m/s). The controller manager's update stamps jitter between 9 and 11 ms, and the
-controller computes speed as position change divided by stamp interval; its own pose integrates
-positions and is unaffected. Removing the IMU did not change the error, so the IMU is not the
-cause. On mock hardware the EKF matches the wheel odometry once the robot stops. Both are well
-inside the 1 % limit; Phase 2's localization evaluation looks at this again.
+wheel odometry alone is 0.01 % off; both are well inside the 1 % limit. The final review
+measured why the EKF does worse: it integrates the *twist* the controller reports, and in
+Gazebo that twist reads about 0.2 % high (1.002 m/s at a true 1.000 m/s). The controller
+manager's update stamps jitter between 9 and 11 ms (they come from its ROS clock, which follows
+`/clock`, not from Gazebo's 1 ms physics steps), and the controller computes speed as position
+change divided by stamp interval. Each update covers exactly 10 ms of physics, so a 9 ms stamp
+interval reads 11 % high and an 11 ms one only 9 % low: the jitter does not average out, it
+pushes the mean up. The controller's own pose integrates positions and is unaffected. Removing
+the IMU did not change the error, so the IMU is not the cause. On mock hardware the EKF ends
+close to the wheel odometry once the robot stops (0.01-15 mm apart after eight short drives of
+0.3-0.7 m). Phase 2's localization evaluation looks at this again.
 
 **Mock caveat.** On mock hardware the IMU always reports a yaw rate of zero, and the EKF trusts
 the IMU's yaw rate far more than the wheels'. In mock mode the EKF follows straight driving but
@@ -474,6 +486,7 @@ A *remap* (`-r from:=to`) renames a topic for one node.
 - **The namespace is absolute** (`'/' + namespace`), because the gz topics and the controller
   manager inside Gazebo get absolute names from the xacro. If someone includes
   `robot.launch.py` inside another namespace, the ROS side must stay at `/robot1` to meet them.
+  `sim.launch.py` gives RViz the same absolute namespace.
 - **One quirk, explained:** `ros2 topic info /tf` lists one publisher, `diff_drive_controller`.
   The controller always creates a `/tf` publisher and sends nothing on it while
   `enable_odom_tf` is false. The controller manager never sees the launch remaps (it runs inside
@@ -531,9 +544,12 @@ node, include another launch file, set a parameter for everything that follows) 
   `GroupAction`, the order matters: `SetParameter(use_sim_time)`, `PushROSNamespace`, then
   `ros2_control_node` (mock only), then the `/tf` remaps, then everything else. Actions such as
   `SetRemap` apply to the nodes that come *after* them in the group.
-- **`warehouse_bringup/launch/sim.launch.py` (entry point)** stays declarative: arguments,
-  `IncludeLaunchDescription` of the two files above, RViz with `IfCondition`, and a computed
-  default (`use_sim_time` defaults to `EqualsSubstitution(hardware, 'gz')`).
+- **`warehouse_bringup/launch/sim.launch.py` (entry point)** is mostly declarative: arguments,
+  `IncludeLaunchDescription` of the two files above, a computed default (`use_sim_time`
+  defaults to `EqualsSubstitution(hardware, 'gz')`), and RViz in a `GroupAction` with
+  `IfCondition`. Inside that group a small `OpaqueFunction` reads the namespace and pushes it as
+  an absolute name, as `robot.launch.py` does (concept 10), so RViz stays with the robot even
+  when `sim.launch.py` is itself included inside another namespace.
 
 Two launch details tripped us up: a list of substitutions must be flat
 ([problem 4](#4-failed-to-normalize-given-item-of-type-list)), and `ros2 launch` refuses an
@@ -568,6 +584,28 @@ results (exit codes, logs).
   sets the variable, and every Gazebo case is reported as **skipped** with the reason, which
   `colcon test-result` counts. A CMake option would have hidden the tests completely.
 
+Not every test needs a running system. Two pytest files check files instead of processes, in
+seconds and in every pull request: `warehouse_description/test/test_description.py` (the URDF
+and `controllers.yaml` against `robot.yaml`, concept 1) and
+`warehouse_gazebo/test/test_gazebo_config.py`. CI cannot render, so the second one is CI's
+only look at the Gazebo side. It checks that:
+
+- every world loads the five systems the robot needs, with the right class names;
+- every gz topic in the bridge file, expanded in `/robot1` by the bridge's own rule (`rclpy`'s
+  `expand_topic_name` applies the same one), is a topic the robot description publishes, with
+  the same message type. Ground truth counts only if the URDF loads its system under the exact
+  filename;
+- each bridge entry uses the same relative name on the ROS side, and the ROS type that matches
+  its gz type;
+- Gazebo's own URDF conversion (`gz sdf -p`) keeps the casters frictionless (problem 3).
+
+Without it these mistakes would pass CI: `gz sdf -k` calls a world with a misspelt system name
+`Valid.`, a bridge entry for a topic that nothing publishes stays silent, and the bridge skips
+an entry with a misspelt ROS type after only a warning. Nineteen single mistakes were made on
+purpose, among them a misspelt system, an absolute scan topic, a misspelt or wrong ROS type, a
+misspelt plugin filename and a named caster collision: the test failed and named the problem
+every time.
+
 **Why industry does it.** Unit tests cannot catch a wrong remap, a missing `/**/`, or a node that
 ignores SIGINT; those only show up when the real launch file runs. A launch test turns the
 acceptance criteria into something CI checks on every pull request.
@@ -589,10 +627,24 @@ acceptance criteria into something CI checks on every pull request.
 - **2026-11-05, final verification.** Three verifiers worked in parallel on scratch copies: one
   reproduced the CI job in `ros:jazzy-ros-base` and ran `actionlint`, one measured every
   acceptance criterion in headless Gazebo with its own scripts, one reviewed the code against
-  the Jazzy sources. No high or medium issues; six low ones (listed under
-  [Open items](#open-items)).
-- **2026-11-05, this report.** Every exercise below was run again in a clean shell: 97 tests,
-  0 failures, 0 skipped on the host; 11 skipped with the CI switch.
+  the Jazzy sources. No high or medium issues; six low ones.
+- **2026-11-05, this report.** Written from the notes of the three rounds; every exercise below
+  was run in a clean shell.
+- **2026-11-05, polish round.** The six low findings and a fact-check of this report were fixed:
+  the EKF explanation in `warehouse_navigation/README.md`, a log-format setting in
+  `sim.launch.py` that changed nothing, RViz's namespace (now absolute, like the robot's), a
+  discovery wait in the Gazebo test, a render-free test of the Gazebo-side files for CI, and
+  the plan's references. The whole tree and every exercise were run again: 104 tests,
+  0 failures, 0 skipped on the laptop; 11 skipped with the CI switch.
+- **2026-11-05, polish check.** Two verifiers checked the polish round on scratch copies (the
+  CI job, the full suite, three exercises, a fresh container, mistakes made on purpose) and
+  found six low issues. A second, smaller round fixed five: the Gazebo configuration test now
+  also checks the ROS side of each bridge entry and the ground-truth system's filename (5 of 19
+  deliberate mistakes had still passed it), the README's status names the open GIF, concept 9
+  explains why the jitter biases the speed upwards, and two wordings. The sixth, a note that
+  `git restore` in exercises 2 and 6 fails before the files are committed, did not apply: they
+  are committed. The full suite ran again: 104 tests, 0 failures, 0 skipped; 11 skipped with
+  the CI switch.
 
 ### The problems, and what they taught
 
@@ -626,8 +678,11 @@ Each story is told as symptom → cause → fix → lesson.
 - *Cause:* sdformat's URDF-to-SDF converter applies `<gazebo reference="link">` surface settings
   only to the collision names it generates itself (`<link>_collision`). The first version gave
   each collision a `name=`, and the settings were silently dropped.
-- *Fix:* every collision is unnamed, and `test_casters_are_frictionless_in_gazebo` converts the
-  URDF with `gz sdf -p` and checks `mu` 0 on the casters.
+- *Fix:* every collision is unnamed. `warehouse_description`'s
+  `test_casters_are_frictionless_in_gazebo` checks the URDF (friction 0 on the casters, no named
+  collision), and `warehouse_gazebo`'s
+  `test_casters_stay_frictionless_after_gazebo_converts_the_urdf` converts it with `gz sdf -p`
+  and checks `mu` 0 on both casters in the result.
 - *Lesson:* check the converted model (`gz sdf -p`), not the file you wrote. A setting that does
   nothing produces no error.
 
@@ -732,8 +787,9 @@ These cost time during verification and will cost you time too:
   through, and re-run.
 - *Stale CLI daemon.* `ros2 topic info` once said `Unknown topic` through a stale `ros2 daemon`;
   with `--no-daemon` it missed a subscription because the one-shot node did not wait for
-  discovery. `ros2 daemon stop` before a session, and trust the launch tests over one-shot CLI
-  calls.
+  discovery. `ros2 daemon stop` before a session, give the new daemon a few seconds to discover
+  the graph (its first answers can be `Unknown topic` or a node named `_NODE_NAME_UNKNOWN_`), and
+  trust the launch tests over one-shot CLI calls.
 
 #### 13. Gazebo sometimes hangs on shutdown (upstream)
 
@@ -756,9 +812,12 @@ These cost time during verification and will cost you time too:
 - RViz cannot start with `QT_QPA_PLATFORM=offscreen` (OGRE needs GLX), so its configuration was
   checked under a virtual X server in the dev-container image. The LaserScan display subscribes
   only once the topic exists.
-- The first explanation of the EKF's 0.1-0.4 % error ("trails speed changes; no slip for the IMU
-  to correct") was wrong. The review measured the real cause (concept 9). Measure before you
-  explain.
+- `sim.launch.py` set `RCUTILS_CONSOLE_OUTPUT_FORMAT` to `[{severity}] [{time}] [{name}]:
+  {message}`, which is rcutils' built-in default (`strings /opt/ros/jazzy/lib/librcutils.so`
+  prints the same string), so the action changed nothing. The polish round removed it.
+- The first explanation of the EKF's 0.1-0.4 % error, in `warehouse_navigation/README.md`
+  ("trails speed changes; no slip for the IMU to correct"), was wrong. The review measured the
+  real cause (concept 9), and the README now gives it. Measure before you explain.
 
 ### Things that look wrong but are not
 
@@ -780,7 +839,7 @@ These cost time during verification and will cost you time too:
 
 Measured on the development laptop (Intel Iris Xe, headless EGL rendering) in a clean
 environment, in sim time. Ranges cover the build run, 15 test runs in the fix round, both final
-verifiers and the run for this report.
+verifiers, the run for this report and the polish round's runs.
 
 | Acceptance criterion (plan, Phase 1) | Target | Measured | Status |
 |---|---|---|---|
@@ -800,35 +859,26 @@ verifiers and the run for this report.
 Additional numbers:
 
 - Braking at the hard limit: 1.50 m/s² from +0.5 m/s and from -0.3 m/s (mock test, every PR).
-- Test suite: 97 tests, 0 failures, 0 skipped on the laptop (about 1 min 15 s, most of it the
-  Gazebo test). In the CI configuration: 97 tests, 0 failures, 11 skipped.
+- Test suite: 104 tests, 0 failures, 0 skipped on the laptop (`colcon test` takes 70-75 s,
+  most of it the Gazebo test). In the CI configuration: 104 tests, 0 failures, 11 skipped.
 - CI job reproduced in `ros:jazzy-ros-base`: green in about 8.5 minutes, of which about 7.8
   minutes is `rosdep install` (Gazebo, ros2_control and RViz are now run dependencies). The
   first real GitHub run happens with the pull request.
+- `warehouse_gazebo`'s tests in a fresh `ros:jazzy-ros-base` container, with only the declared
+  dependencies of `warehouse_description` and `warehouse_gazebo` installed: 19 tests, 0
+  failures, without a GPU or a display.
 - The IMU noise check (σ within ±20 %) belongs to Phase 2 by plan.
 
 ### What was not verified
 
 - **GUI mode** (`sim.launch.py` with the Gazebo window and RViz on the desktop) and the GIF.
   The headless server and the RViz configuration (under a virtual X server) were verified.
+- The GIF steps of exercise 7 on a real screen recording: the conversion and size-check
+  commands ran in a container, on a generated test clip. The laptop has neither ffmpeg nor
+  gifsicle; the exercise installs them with `sudo apt install`.
 - `rqt_tf_tree`: not installed on the laptop yet (`rosdep install` adds it).
 - A real GitHub Actions run (only the local reproduction).
 - More than one robot (Phase 9; see the IMU naming risk in ADR-005).
-
-### Open items
-
-From the final review (all low severity, none affecting the acceptance results):
-
-- `warehouse_navigation/README.md` still gives the old explanation of the EKF's error; concept 9
-  has the measured one.
-- `sim.launch.py` sets `RCUTILS_CONSOLE_OUTPUT_FORMAT` to rcutils' built-in default, so that
-  action changes nothing.
-- RViz in `sim.launch.py` uses a relative namespace, unlike `robot.launch.py`; it would nest if
-  `sim.launch.py` were included inside another namespace.
-- `test_gz_bringup.py` test 2 reads the graph without waiting for discovery (the mock test
-  waits).
-- CI never loads a Gazebo-side file (world, bridge YAML); a render-free test could check them.
-- `PROJECT_PLAN.md` still says "ADR P1" for D1-D3 and "bridge config generated per robot".
 
 ## Try it yourself
 
@@ -900,24 +950,27 @@ grep -hE "Measured rates|Scan check|odometry:|Braking from" \
   build/warehouse_system_tests/launch_test/*.txt
 ```
 
-The test run takes about a minute and a quarter (the Gazebo test is the long one; no window
+The test run takes a little over a minute (the Gazebo test is the long one; no window
 opens). Do not run a simulation at the same time: `wh_shell` sets `ROS_DOMAIN_ID`, so the
 tests use that domain too, and a second `/robot1/controller_manager` would confuse them.
 Expect:
 
 ```text
-Summary: 97 tests, 0 errors, 0 failures, 0 skipped
+Summary: 104 tests, 0 errors, 0 failures, 0 skipped
 ```
 
-and numbers like these (yours will differ in the last digits):
+and numbers like these (yours will differ in the last digits). Two of the lines begin with the
+name of another test case, such as `test_05_tf_stays_in_the_namespace (...) ... Measured
+rates ...`: the log mixes unittest's progress lines with the tests' own printed output, so a
+printed line can land after a later test's name. Ignore that prefix.
 
 ```text
-Measured rates (sim time): {'scan': 10.0, 'imu': 99.99999999999997, 'odom/wheel': 49.892473118279575}
+Measured rates (sim time): {'scan': 10.0, 'imu': 100.0, 'odom/wheel': 50.0}
 Scan check: 20 scans, 580 returns on the target, 0 inside the outline, 0 elsewhere
 wheel odometry: 10.388 m forward, 0.000 m left, truth 10.389 / 0.000 m, error 0.01 %
-fused odometry: 10.413 m forward, 0.000 m left, truth 10.389 / 0.000 m, error 0.23 %
-wheel odometry: turned 370.75 deg, truth 370.75 deg, error 0.00 %
-fused odometry: turned 370.67 deg, truth 370.75 deg, error 0.02 %
+fused odometry: 10.402 m forward, 0.015 m left, truth 10.389 / 0.000 m, error 0.19 %
+wheel odometry: turned 371.23 deg, truth 371.22 deg, error 0.00 %
+fused odometry: turned 371.22 deg, truth 371.22 deg, error 0.00 %
 Braking from +0.50 m/s: 1.50 m/s^2
 Braking from -0.30 m/s: 1.50 m/s^2
 ```
@@ -926,12 +979,12 @@ Now run the system tests the way CI does:
 
 ```bash
 WAREHOUSE_SKIP_GZ_TESTS=1 colcon test --packages-select warehouse_system_tests
-colcon test-result --all | grep bringup
+colcon test-result --all | grep test_test_
 colcon test-result
 ```
 
 The Gazebo file reports `11 tests, 0 errors, 0 failures, 11 skipped`, the mock file `7 tests,
-0 errors, 0 failures, 0 skipped`, and the total becomes `97 tests, 0 errors, 0 failures, 11
+0 errors, 0 failures, 0 skipped`, and the total becomes `104 tests, 0 errors, 0 failures, 11
 skipped`: skipped, not passed and not missing. Run `colcon test` once more without the variable
 to get back to 0 skipped.
 
@@ -998,10 +1051,11 @@ ros2 topic echo /robot1/odom --once --field pose.pose.position
 ```
 
 `stamp: now` fills in the publisher's current time; mock hardware runs on the wall clock, so
-that is right here. Both odometries report `x: 0.708...`. The arithmetic: 0.3 m/s for the
-1.95 s of commands plus the 0.5 s until `cmd_vel_timeout` fires is 0.735 m; speeding up at
-0.8 m/s² costs 5.6 cm, and braking at 1.5 m/s² rolls 3 cm further. Stop with Ctrl-C in
-terminal 1.
+that is right here. The wheel odometry reports `x: 0.708...`, and the EKF nearly the same
+(0.694-0.709 in three runs here: on mock hardware it trails a sudden start and does not always
+catch up completely, problem 7). The wheels' arithmetic: 0.3 m/s for the 1.95 s of commands
+plus the 0.5 s until `cmd_vel_timeout` fires is 0.735 m; speeding up at 0.8 m/s² costs 5.6 cm,
+and braking at 1.5 m/s² rolls 3 cm further. Stop with Ctrl-C in terminal 1.
 
 ### Exercise 4: Gazebo from the outside
 
@@ -1021,6 +1075,10 @@ ros2 topic info -v /robot1/scan | grep -E "Node name|Reliability"
 ros2 topic info -v /tf | grep -E "Node name|count"
 gz topic -l
 ```
+
+If `ros2 topic info` prints `Unknown topic '/robot1/scan'` (or `'/tf'`), or shows a publisher as
+`Node name: _NODE_NAME_UNKNOWN_`, wait a few seconds and run it again: a freshly started
+`ros2 daemon` needs a moment to discover the graph (problem 12).
 
 Expect average rates of about 10, 100 and 50 (the last one between 48 and 50 over a short
 window), the scan published by `gz_bridge` with `BEST_EFFORT`, one idle publisher on `/tf`
@@ -1065,7 +1123,11 @@ sleep 3; ros2 topic echo /robot1/odom/wheel --once --field twist.twist.linear.x
 
 The robot is still driving at about `0.5` m/s seconds after the last message, and it will keep
 going: the last command's stamp is decades "in the future" for a clock that started at zero
-(concept 11, plan R1). Stop it with a sim-time zero command, then Ctrl-C in terminal 1:
+(concept 11, plan R1). A single reading can be off, the first one especially: first readings
+of 0.62 and even 4.6 m/s have been seen, each followed by 0.50. The controller divides the
+wheels' position change by the interval between its update stamps, and when those stamps
+jitter or lag (concept 9), a reading jumps. Stop the robot with a sim-time zero command, then
+Ctrl-C in terminal 1:
 
 ```bash
 ros2 topic pub -s -r 10 -t 5 /robot1/cmd_vel geometry_msgs/msg/TwistStamped '{header: {stamp: now}}'
@@ -1090,7 +1152,7 @@ The output ends with:
     E         comparison failed
     E         Obtained: 0.075
     E         Expected: 0.08 ± 8.0e-08
-    FAILED ../../src/warehouse_description/test/test_description.py::test_controllers_match_robot_yaml
+    FAILED ../../src/ros2-warehouse-amr/warehouse_description/test/test_description.py::test_controllers_match_robot_yaml
 ```
 
 The URDF followed `robot.yaml` automatically, the controller's copy in `controllers.yaml` did
@@ -1212,6 +1274,7 @@ The problem stories above each end with their lesson. These are the everyday pit
 
 | Term | Meaning |
 |---|---|
+| AMCL | Adaptive Monte Carlo Localization: a particle filter that localizes the robot on a known map (Phase 2) |
 | `base_footprint` / `base_link` | The robot's frame on the floor (the URDF root) and its body frame (here on the drive axle), REP-105 |
 | best effort / reliable | QoS reliability: lost messages are not resent / are resent until delivered |
 | broadcaster | A ros2_control controller that only reads state interfaces and publishes them |
@@ -1219,6 +1282,7 @@ The problem stories above each end with their lesson. These are the everyday pit
 | controller manager | The ros2_control node that loads hardware and controllers and runs the control loop |
 | covariance | A measure of uncertainty; its diagonal holds the variances (σ²) of each value |
 | dead reckoning | Estimating position by adding up measured motion; errors accumulate |
+| DDS | Data Distribution Service: the middleware under ROS 2 that discovers nodes and delivers messages; `ROS_DOMAIN_ID` and the discovery range limit whom it reaches |
 | EKF | Extended Kalman filter: fuses predictions and measurements weighted by their uncertainty |
 | `gpu_lidar` | Gazebo's rendered lidar sensor; it sees visuals, not collisions |
 | ground truth | The true value, here the robot's world pose from Gazebo; for tests only |
@@ -1226,10 +1290,12 @@ The problem stories above each end with their lesson. These are the everyday pit
 | `GZ_PARTITION` | Keeps gz-transport sessions apart, like `ROS_DOMAIN_ID` for ROS |
 | hardware interface | The ros2_control plugin that talks to motors and sensors (or a simulator, or a fake) |
 | inertia tensor | How a body's mass is distributed: how hard it is to rotate about each axis |
+| KDL | Kinematics and Dynamics Library (Orocos KDL), which `robot_state_publisher` uses to compute the links' transforms from the URDF |
 | launch_testing | Framework for tests that run while a launch description is running, plus after-shutdown checks |
 | lumping | Gazebo's merging of links on fixed joints into one simulated link |
 | mock hardware | `mock_components/GenericSystem`: a fake ros2_control hardware for tests without a simulator |
 | namespace | A name prefix (`/robot1`) that relative node and topic names are resolved in |
+| Nav2 | The ROS 2 navigation stack: path planning, path following and recovery behaviours (Phase 3) |
 | nonholonomic | Unable to move in some direction directly; a diff drive cannot slide sideways |
 | odometry | An estimate of the robot's motion from wheels and sensors |
 | QoS | Quality of service: per-topic delivery rules (reliability, durability, history) |
@@ -1238,6 +1304,7 @@ The problem stories above each end with their lesson. These are the everyday pit
 | `robot_state_publisher` (RSP) | Publishes the URDF and the transforms of the robot's links |
 | ros_gz bridge | `ros_gz_bridge`: copies messages between gz-transport and ROS 2 |
 | SDF | Simulation Description Format, Gazebo's model and world format |
+| SIGINT | The interrupt signal: what Ctrl-C sends, and what launch sends to each process it started when it shuts down |
 | sim time | The simulator's clock on `/clock`, used when `use_sim_time` is true |
 | spawner | A short-lived process that loads and activates one controller |
 | system (Gazebo) | A Gazebo plugin that adds a capability to the world (physics, sensors, IMU) |

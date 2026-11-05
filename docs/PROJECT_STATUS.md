@@ -112,11 +112,13 @@ has a `wh_shell` function for that).
   window) and bridges `/clock` once per world. It runs `gz sim` directly rather than through a
   shell, so one Ctrl-C (SIGINT) stops it. `spawn_robot.launch.py` spawns a robot from its
   `robot_description` and bridges its `scan` (sensor-data QoS) and `ground_truth/odom` (for
-  tests only). Phase 1 has one world, `empty`.
+  tests only). Phase 1 has one world, `empty`. A pytest checks these files without rendering,
+  so CI runs it: the systems every world loads, the bridge file against the robot
+  description, and the caster friction after Gazebo's own URDF conversion.
 - **How to use it:** normally through `warehouse_bringup`'s `sim.launch.py`. On its own:
   `ros2 launch warehouse_gazebo gazebo.launch.py headless:=true`.
 - **Where it lives:** `warehouse_gazebo/` (`launch/`, `worlds/empty.sdf`,
-  `config/robot_bridge.yaml`).
+  `config/robot_bridge.yaml`, `test/test_gazebo_config.py`).
 
 ### Odometry EKF (`warehouse_navigation`)
 
@@ -159,9 +161,9 @@ has a `wh_shell` function for that).
   ros2 control list_controllers -c /robot1/controller_manager   # three controllers, all active
   ```
 
-  `colcon test && colcon test-result --verbose` reports `97 tests, 0 errors, 0 failures, 0
-  skipped` on a machine that can render (about 75 s); CI reports the 11 Gazebo test cases as
-  skipped.
+  `colcon test && colcon test-result --verbose` reports `104 tests, 0 errors, 0 failures, 0
+  skipped` on a machine that can render (70-75 s); CI reports the 11 Gazebo launch test
+  cases as skipped.
 - **Where it lives:** `warehouse_bringup/` (`launch/`, `rviz/robot.rviz`, README with every
   argument and the checks to run by hand); lint rules in
   [ADR-003](decisions/ADR-003-formatting-and-linting.md) and the "New packages" section of
@@ -232,7 +234,8 @@ has a `wh_shell` function for that).
   `main` gets its own result. Since Phase 1 the build-and-test job keeps DDS discovery on the
   runner (`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`) and sets `WAREHOUSE_SKIP_GZ_TESTS=1`: the
   runners cannot render Gazebo's scanner, so the Gazebo launch tests are reported as skipped
-  while the mock-hardware launch tests run. In Phase 0 each job took about 35-45 s. Phase 1
+  while the mock-hardware launch tests and `warehouse_gazebo`'s render-free configuration test
+  run. In Phase 0 each job took about 35-45 s. Phase 1
   adds Gazebo, ros2_control and RViz to the rosdep install: a local reproduction of the
   build-and-test job took about 8.5 minutes, 7.8 of them in `rosdep install` (the first run on
   GitHub comes with the Phase 1 pull request).
@@ -365,6 +368,10 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | Upstream Gazebo shutdown hang ([gz-sim#4173](https://github.com/gazebosim/gz-sim/issues/4173)) accepted as a known issue: re-run when only the exit-code check fails | About 1 Gazebo test run in 15; not caused by this repository, CI unaffected (it skips the Gazebo test) | adopted (until fixed upstream) | [warehouse_system_tests](../warehouse_system_tests/README.md) |
 | 2026-11-05 | Phase 1 built, reviewed, fixed and verified by AI agents (Claude Code): one builder, one review and fix round, three parallel final verifiers (CI reproduction, Gazebo acceptance, code review against the Jazzy sources) | Same practice as Phase 0; every acceptance criterion is measured, and every exercise in the report was run again in a clean shell (except the windowed demo) | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
 | 2026-11-05 | Learning-report exercises and local runs use a clean shell (`wh_shell`: only `/opt/ros/jazzy` and this workspace, `ROS_DOMAIN_ID=42`, LOCALHOST discovery) | The maintainer's normal shell sources other workspaces and discovers across the LAN, which can shadow packages and mix graphs | adopted | [Phase 1 report](phase-reports/phase-01-robot-description.md#before-you-start) |
+| 2026-11-05 | A render-free test of the Gazebo-side files (`warehouse_gazebo/test/test_gazebo_config.py`) runs in every pull request: the systems every world loads, the bridge file against the URDF (gz names expanded the way the bridge expands them, the same relative name and the matching ROS type on the ROS side, the ground-truth system's filename), and the caster friction after `gz sdf -p` | CI skips the Gazebo launch test, so a typo in the world or the bridge file passed CI: `gz sdf -k` accepts a misspelt system, a bridge entry for a topic nothing publishes fails silently, and one with a misspelt ROS type only logs a warning. Each of 19 single mistakes made on purpose fails the test, among them a misspelt system, an absolute scan topic, a misspelt or wrong ROS type, a misspelt plugin filename and a named caster collision | adopted | [warehouse_gazebo](../warehouse_gazebo/README.md#tests) |
+| 2026-11-05 | Launch files keep rcutils' default log format: `sim.launch.py` no longer sets `RCUTILS_CONSOLE_OUTPUT_FORMAT`, and plan §6 says to override it only to add fields | The value it set was rcutils' built-in default (`[{severity}] [{time}] [{name}]: {message}`), so it changed nothing, and a reader would copy a no-op | adopted | Plan §6 |
+| 2026-11-05 | Phase 1 acceptance reworded: after the key is released, the controller starts braking when `cmd_vel_timeout` (0.5 s) expires and stands still about 0.33 s later, at the -1.5 m/s² limit | "Stops within `cmd_vel_timeout`" cannot hold with a deceleration limit; the new wording is what the tests measure | adopted | Plan, Phase 1 |
+| 2026-11-05 | Phase 1 polish round before the pull request: the final review's six low findings and a fact-check of the learning report fixed (EKF explanation, RViz's absolute namespace, a discovery wait in the Gazebo test, the plan's references to ADR-005 and the static bridge file); the IMU sensor-name risk is now recorded in plan R2 and stays open until Phase 9. Two verifiers then checked the round, and a second, smaller round fixed what they found (the ROS side of the bridge test, the README status, the EKF speed explanation, two wordings) | Every document agrees with the code and with re-measured numbers before the merge | done | [Phase 1 report](phase-reports/phase-01-robot-description.md#what-happened) |
 
 ## Planned features
 

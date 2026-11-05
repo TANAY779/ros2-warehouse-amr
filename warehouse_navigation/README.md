@@ -26,8 +26,14 @@ dominates the heading while the wheels give the speed.
 
 Measured in Gazebo (Phase 1 acceptance test, 15 runs): over 10.4 m straight the EKF's end point
 is within 0.1-0.4 % of ground truth, and over a 370° turn in place its heading is within 0.05 %.
-The wheel odometry alone does better in simulation (0.01 % and 0.00 %): the EKF trails sudden
-speed changes by a few centimetres, and the sim has no wheel slip for the IMU to correct.
+The wheel odometry alone does better in simulation (0.01 % and 0.00 %). The EKF integrates the
+controller's reported twist, and in Gazebo that twist reads about 0.2 % high (1.002 m/s at a
+true 1.000 m/s): the controller manager's update stamps jitter between 9 and 11 ms, and the
+controller computes speed as position change / stamp interval. Each update covers 10 ms of
+physics, so a 9 ms interval reads 11 % high and an 11 ms one only 9 % low: the jitter pushes
+the average up. The controller's own pose integrates the wheel positions and is unaffected.
+Removing the IMU does not change the error. On mock hardware the EKF ends close to the wheel
+odometry once the robot stops: 0.01-15 mm apart after eight short drives of 0.3-0.7 m.
 
 **Mock hardware caveat.** With `hardware:=mock` the IMU reports its initial values (zero yaw
 rate), and the EKF trusts the IMU's yaw rate far more than the wheels'. In mock mode the EKF
