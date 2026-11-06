@@ -1,0 +1,203 @@
+# Warehouse layout: the single source of the warehouse (plan D8).
+#
+# Everything about the warehouse is made from this file: the Gazebo world, the location
+# registry (named poses) and the expected inventory now; the keepout and speed masks (P3), the
+# dock database (P5), tag placement (P7), scan routes (P8) and the route graph (P11) later.
+# warehouse_layout/model.py reads it and derives rows, bays, slots, aisles, poses and zones;
+# warehouse_layout/rules.py holds the fit rules. The package README describes every key.
+#
+# Frame: every coordinate is in the map frame, which is the Gazebo world frame. Its origin is
+# robot1's spawn pose, facing +x: mapping starts there, so the saved map lines up with the
+# world without a correction step. x points east, y north, yaw is counter-clockwise from +x
+# (REP-103). Units: metres, radians and m/s. Colours are sRGB '#rrggbb'.
+#
+# After an edit, draw it and check the fit rules:
+#   ros2 run warehouse_layout preview --out /tmp/layout.png
+
+schema_version: 1
+name: warehouse            # the world's name
+seed: 2                    # the expected inventory is random, but the same every time
+
+hall:
+  x: [-1.5, 28.5]          # inner faces of the west and east walls: 30.0 m
+  y: [-2.0, 18.0]          # inner faces of the south and north walls: 20.0 m
+  wall_thickness: 0.20
+  wall_height: 2.50
+  # Positions on a wall (span, at, the pilaster lists) are measured along it: x on the south
+  # and north walls, y on the west and east walls.
+  recesses:                # a doorway set back into a wall: the wall steps out round it
+    - {id: loading_door, wall: east, span: [4.5, 8.5], depth: 0.40}
+  doors:                   # door panels on a wall's inner face: visual only
+    - {id: staff_door, wall: south, span: [15.5, 16.5]}
+  pilasters:               # building columns standing out of the walls: lidar landmarks
+    size: [0.50, 0.30]     # along the wall, out into the hall
+    south: [1.5, 8.5, 14.5]
+    north: [1.5, 8.5, 14.5, 21.5]
+    west: [6.0, 13.0]
+    east: [2.5, 10.2]
+
+shelving:                  # the same for every shelf row
+  depth: 0.50              # face to back; a tote's 0.40 m side points into the shelf
+  bay_width: 1.00          # upright to upright
+  upright: 0.05            # upright width along the row
+  plinth_height: 0.40      # solid base flush with the face (the lidar sees a wall); its top is level 1
+  board_heights: [0.75, 1.10]   # tops of the boards of levels 2 and 3
+  board_thickness: 0.03
+  top_height: 1.60         # top of the uprights and of the top board
+  positions_per_level: 2   # totes side by side on one level of a bay; position 1 is the south one
+  end_guard: {depth: 0.10, height: 0.45}   # steel guard across each end of a row, solid from the floor
+
+blocks:                    # rows run north-south through both blocks, split by the mid cross aisle
+  - {id: south, y_start: 3.3, bays: 5}     # bays 01-05
+  - {id: north, y_start: 11.05, bays: 4}   # bays 06-09: numbering continues across the blocks
+
+rows:                      # single-faced shelf rows; face = the direction the shelf face looks.
+  # A and H stand alone; B|C, D|E and F|G stand back to back with a 0.10 m flue between them.
+  - {id: A, x_face: 2.0, face: +x, bays: {north: 3}}   # shorter: aisle 1 north opens to the west
+  - {id: B, x_face: 3.6, face: -x}
+  - {id: C, x_face: 4.7, face: +x}
+  - {id: D, x_face: 6.3, face: -x, bays: {north: 3}}   # D and E end at fire_point_1
+  - {id: E, x_face: 7.4, face: +x, bays: {north: 3}}
+  - {id: F, x_face: 9.0, face: -x}
+  - {id: G, x_face: 10.1, face: +x}
+  - {id: H, x_face: 11.7, face: -x}
+
+aisles:                    # pick aisles: two facing rows; pick poses on the centreline, one per bay
+  - {id: '1', rows: [A, B]}
+  - {id: '2', rows: [C, D]}
+  - {id: '3', rows: [E, F]}
+  - {id: '4', rows: [G, H]}
+
+packing_stations:
+  - id: pack_1
+    counter: {x: [4.0, 7.0], y: [-1.0, -0.2], height: 0.90}   # solid to the floor
+    drop: {x: 5.5, y: 0.4, yaw: 0.0}    # side-on, 0.60 m from the counter face
+
+docks:                     # charging docks (P5): a pedestal against a wall, a contact bar in front
+  pedestal: {width: 0.60, depth: 0.30, height: 0.50}      # its face will carry the dock tag (P7)
+  contact_bar: {width: 0.30, depth: 0.04, height: 0.12}   # below the scan plane, so inside a keepout
+  plate_height: 0.01       # base plate on the floor between the pedestal and the bar
+  tag_setback: 0.25        # the pedestal face stands this far behind the contact face
+  staging_distance: 0.70   # the staging pose stands this far out from the docked pose
+  keepout_margin: {side: 0.10, front: 0.05}   # keepout box round the plate and the bar
+  units:                   # robots dock forwards (D10); at = position along the wall
+    - {id: dock_1, wall: south, at: 10.0}
+    - {id: dock_2, wall: south, at: 11.5}
+    - {id: dock_3, wall: south, at: 13.0}
+
+spawns:                    # spawn and parking poses, one per robot (P9 runs three)
+  robot1: {x: 0.0, y: 0.0, yaw: 0.0}    # must stay the origin: the mapping run starts here
+  robot2: {x: 0.0, y: -1.2, yaw: 0.0}
+  robot3: {x: 0.0, y: 1.2, yaw: 0.0}
+
+fixtures:                  # other objects, all solid from the floor; kind picks the colour
+  - {id: fire_point_1, kind: cabinet, x: [6.55, 7.15], y: [14.25, 15.2], height: 1.80}
+  - {id: office, kind: room, x: [24.5, 28.5], y: [-2.0, 1.5], height: 2.50}
+  - {id: column_1, kind: column, x: [18.25, 18.75], y: [12.25, 12.75], height: 3.00}
+  - {id: pallet_1, kind: pallet_stack, x: [22.2, 23.4], y: [4.7, 5.7], height: 1.20}
+  - {id: pallet_2, kind: pallet_stack, x: [22.2, 23.4], y: [7.1, 8.1], height: 1.20}
+  - {id: pallet_3, kind: pallet_stack, x: [24.8, 26.0], y: [6.0, 7.0], height: 1.40}
+  - {id: compressor, kind: machine, x: [24.8, 26.8], y: [14.5, 15.7], height: 1.60}
+  - {id: switchgear, kind: machine, x: [27.6, 28.4], y: [12.6, 14.4], height: 2.00}
+
+fences:
+  - id: machinery_fence
+    path: [[22.5, 18.0], [22.5, 11.8], [28.5, 11.8]]   # segments parallel to x or y
+    gates: [{segment: 1, span: [23.5, 24.9]}]   # open; the keepout zone keeps robots out
+    thickness: 0.05
+    kick_plate_height: 0.50    # solid lower panel, so the lidar sees the fence
+    height: 1.80
+
+zones:
+  pick_aisle_speed: 0.5    # m/s: every pick-aisle segment becomes a speed zone (generated)
+  keepout:                 # Phase 3 KeepoutFilter; each dock's bar gets a keepout box (generated)
+    - {id: machinery, polygon: [[22.2, 11.5], [28.5, 11.5], [28.5, 18.0], [22.2, 18.0]]}
+    - {id: forklift_area, polygon: [[21.5, 4.0], [28.5, 4.0], [28.5, 9.0], [21.5, 9.0]]}
+    - {id: packer_walkway, polygon: [[3.5, -2.0], [7.5, -2.0], [7.5, -1.0], [3.5, -1.0]]}
+  speed:                   # Phase 3 SpeedFilter limits, m/s
+    - {id: staff_crossing, limit: 0.3, polygon: [[14.0, -2.0], [18.0, -2.0], [18.0, 3.0], [14.0, 3.0]]}
+    - {id: packing_area, limit: 0.3, polygon: [[3.0, -0.2], [8.0, -0.2], [8.0, 1.6], [3.0, 1.6]]}
+
+corridors:                 # clear widths checked by the fit rules: along axis, through the point at
+  - {id: main_aisle, at: [4.4, 1.5], axis: y}          # packing counter to the row guards
+  - {id: main_aisle_at_docks, at: [10.0, 1.5], axis: y}   # dock_1 to the row guards
+  - {id: mid_cross_aisle, at: [4.4, 9.7], axis: y}
+  - {id: north_cross_aisle, at: [4.4, 16.6], axis: y}
+  - {id: west_aisle, at: [0.0, 6.0], axis: x}          # at its narrowest: a pilaster
+  - {id: office_corridor, at: [26.0, 2.0], axis: y}    # office to the forklift keepout
+  - {id: east_corridor, at: [25.0, 10.2], axis: y}     # forklift keepout to the machinery keepout
+  - {id: column_corridor, at: [20.5, 12.5], axis: x}   # column to the machinery keepout
+
+markings:                  # floor paint: visual only, no collision (the lidar never sees it)
+  # Generated from other objects: a parking bay round each spawn, a dock bay from each contact
+  # face to beyond its staging pose, and a stripe across each end of each pick aisle.
+  line_width: 0.05         # painted lines: bay outlines and the stripes across the aisle mouths
+  bay_margin: 0.12         # a painted bay is the robot's outline plus this on every side
+  zebras:                  # walk = the direction people walk; the bands run across it
+    - {id: staff_crossing, x: [15.0, 17.0], y: [-2.0, 3.0], stripe: 0.5, walk: y}
+
+inventory:                 # what the expected inventory is generated from (data, shown in Phase 7)
+  fill_ratio: 0.5          # share of slots holding a tote (414 slots -> 207 totes, <= 230)
+  skus: 60                 # SKU-001 .. SKU-060
+  # setback 0: the tote's front stands flush with the shelf face. The Phase 7 tag rule needs it:
+  # 0.12 m tag, side camera f = 320 px, 0.95 m away (0.80 + 0.15 off-centre) -> 40.4 px; 2 cm back -> 39.6 px.
+  tote: {length: 0.40, width: 0.30, height: 0.20, setback: 0.0}
+
+style:                     # the look of the world and the preview
+  show_totes: false        # bare shelves until Phase 7; true puts the inventory's totes on them
+  floor: '#d9d8d3'         # concrete
+  wall: '#e5e4df'          # off-white above the band
+  wall_band: '#5b6370'     # slate band along the bottom of the walls
+  wall_band_height: 1.0
+  pilaster: '#9aa0a6'
+  door: '#7d848c'
+  rack_plinth: '#3d4148'   # racks: plain industrial, the same in every aisle
+  rack_upright: '#46596e'  # steel blue-grey
+  rack_board: '#eb6834'    # rack orange: the level boards and the top board
+  rack_guard: '#46596e'    # end guards, steel like the uprights
+  tote: '#a7b0ba'          # used when show_totes is true
+  station: '#6250d6'       # violet packing counter
+  dock: '#008300'          # green pedestal
+  contact: '#b87333'       # copper contact bar
+  dock_plate: '#9aa0a6'
+  fence: '#2b2b2b'
+  fixtures:                # by fixture kind: a red fire point, everything else grey
+    cabinet: '#d03b3b'
+    room: '#b9bdc2'
+    column: '#9aa0a6'
+    pallet_stack: '#8d939b'
+    machine: '#8d939b'
+  keepout_paint: '#d03b3b' # red tint and border
+  speed_paint: '#eda100'   # amber: the 0.3 m/s zones
+  lane_paint: '#ffffff'    # zebra crossing, parking bays, aisle mouth stripes
+  dock_paint: '#008300'    # dashed dock bays
+
+routes:                    # waypoints [x, y] for the route driver; the route fit rule checks them
+  survey:                  # mapping and the 5 min localization run: about 176 m
+    - [0.0, 0.0]
+    - [1.5, 1.5]
+    - [20.0, 1.5]
+    - [20.0, 16.6]
+    - [0.0, 16.6]
+    - [0.0, 1.5]
+    - [2.8, 1.5]
+    - [2.8, 16.6]
+    - [5.5, 16.6]
+    - [5.5, 1.5]
+    - [8.2, 1.5]
+    - [8.2, 16.6]
+    - [10.9, 16.6]
+    - [10.9, 1.5]
+    - [13.45, 1.5]
+    - [13.45, 9.7]
+    - [0.0, 9.7]
+    - [0.0, 1.0]
+    - [0.0, 0.0]
+  smoke:                   # quick localization check: about 25 m, 1 min
+    - [0.0, 0.0]
+    - [1.5, 1.5]
+    - [2.8, 1.5]
+    - [2.8, 9.7]
+    - [0.0, 9.7]
+    - [0.0, 1.0]
+    - [0.0, 0.0]

@@ -21,7 +21,8 @@ entry for a gz topic that nothing publishes bridges nothing without an error, an
 skips an entry with a misspelt ROS type after only a warning. These tests read the installed
 files Gazebo would load and check them against the robot description:
 
-- every world loads the systems the robot needs (a world with any <plugin> loads only those);
+- every world is valid SDF (`gz sdf -k`), is named after its file, steps physics like
+  empty.sdf, and loads the systems the robot needs (a world with any <plugin> loads only those);
 - every bridged gz topic is one the robot publishes, with the message type it carries, and
   reaches ROS under the same relative name, as the matching ROS type;
 - after Gazebo's own URDF-to-SDF conversion, the casters are still frictionless.
@@ -110,10 +111,39 @@ def is_caster(collision):
     return radius is not None and math.isclose(float(radius), ROBOT['casters']['radius'])
 
 
+def world_root(world):
+    return ElementTree.parse(os.path.join(SHARE, 'worlds', f'{world}.sdf')).getroot()
+
+
+@pytest.mark.parametrize('world', WORLDS)
+def test_world_is_valid_sdf(world):
+    # sdformat's own check. It catches what Gazebo would refuse to load, such as a visual and
+    # a collision with the same name in one link (worlds/warehouse.sdf is generated, plan
+    # R2-12), but not a misspelt system name (the next tests).
+    result = subprocess.run(['gz', 'sdf', '-k', os.path.join(SHARE, 'worlds', f'{world}.sdf')],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0 and 'Valid.' in result.stdout, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('world', WORLDS)
+def test_world_is_named_after_its_file(world):
+    # world:=<name> picks the file; tools address the running world by its name
+    # (/world/<name>/...), so the two must agree.
+    assert world_root(world).find('world').get('name') == world
+
+
+@pytest.mark.parametrize('world', WORLDS)
+def test_world_steps_physics_every_millisecond_in_real_time(world):
+    # The controller manager runs at 100 Hz: each control cycle covers 10 physics steps.
+    physics = world_root(world).find('world/physics')
+    assert float(physics.findtext('max_step_size')) == 0.001
+    assert float(physics.findtext('real_time_factor')) == 1.0
+
+
 @pytest.mark.parametrize('world', WORLDS)
 def test_world_loads_the_systems_the_robot_needs(world):
-    root = ElementTree.parse(os.path.join(SHARE, 'worlds', f'{world}.sdf')).getroot()
-    systems = {plugin.get('filename'): plugin for plugin in root.findall('world/plugin')}
+    systems = {plugin.get('filename'): plugin
+               for plugin in world_root(world).findall('world/plugin')}
     for filename, name in REQUIRED_SYSTEMS.items():
         assert filename in systems, f'{world}.sdf does not load {filename}'
         assert systems[filename].get('name') == name, f'{world}.sdf, {filename}'

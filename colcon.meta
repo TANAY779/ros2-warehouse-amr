@@ -14,6 +14,8 @@ names:
     cmake-args: [-DBUILD_TESTING=OFF]
   warehouse_gazebo:
     cmake-args: [-DBUILD_TESTING=OFF]
+  # ament_python: `colcon build` never builds or runs its tests, so there is nothing to turn off.
+  warehouse_layout: {}
   warehouse_navigation:
     cmake-args: [-DBUILD_TESTING=OFF]
   warehouse_system_tests:
