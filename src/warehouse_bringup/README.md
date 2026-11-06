@@ -1,7 +1,8 @@
 # warehouse_bringup
 
 Top-level launch files and configuration. This is the entry point for running the system: every
-demo starts with `ros2 launch warehouse_bringup ...`.
+demo starts with `ros2 launch warehouse_bringup ...`. The package also has the teleop window, for
+driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 
 ## Files
 
@@ -10,6 +11,10 @@ demo starts with `ros2 launch warehouse_bringup ...`.
 | `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
 | `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners and the EKF. Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
 | `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
+| `warehouse_bringup/hold_to_drive.py` | The teleop window's logic: which command to send for the keys held, and when. Plain Python, no Qt and no ROS |
+| `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher) |
+| `scripts/teleop_window.py` | Starts the window. CMake installs it as `lib/warehouse_bringup/teleop_window`, the file `ros2 run warehouse_bringup teleop_window` runs |
+| `test/` | pytest tests of the logic (`test_hold_to_drive.py`) and of the window with synthetic key events on Qt's offscreen platform (`test_teleop_window.py`); `colcon test` also runs the linters |
 
 ## Running
 
@@ -93,6 +98,109 @@ ros2 topic echo /robot1/ground_truth/odom --once --field pose.pose.position   # 
 
 ## Driving with teleop
 
+Two ways to drive the robot by keyboard: the teleop window of this package, which drives while
+you hold a key and stops the moment you let go, and `teleop_twist_keyboard` in a terminal, for
+when there is no desktop.
+
+### The teleop window
+
+With the simulation running, in a second terminal:
+
+```bash
+ros2 run warehouse_bringup teleop_window --ros-args -r __ns:=/robot1 -p use_sim_time:=true
+```
+
+A small window opens. Click it, then hold keys to drive:
+
+| Key | What it does |
+|---|---|
+| ↑ or W, ↓ or S | Drive forward, backward |
+| ← or A, → or D | Turn left (counter-clockwise), turn right. The same while driving backward: ← always turns the robot's nose to the left |
+| Two keys together | They combine: ↑ and ← drive a curve to the left |
+| Space | Stop, even while a key is still held |
+| Q, Z | Driving speed up, down by 0.1 m/s |
+| E, C | Turning speed up, down by 0.1 rad/s |
+
+The window shows these keys, both speeds, the command it is sending and who listens. "Nothing
+subscribes to /robot1/cmd_vel" means a wrong namespace; "No /clock yet" means the simulation is
+not running.
+
+- `-r __ns:=/robot1` puts the window's node in the robot's namespace, so it publishes
+  `/robot1/cmd_vel`.
+- `use_sim_time:=true` (Gazebo only; leave it out for `hardware:=mock`): the window stamps each
+  command with its node's clock, and the controller judges a command's age from that stamp on
+  its own clock, as explained for teleop_twist_keyboard below.
+- No `stamped` parameter: the window always publishes `TwistStamped`.
+
+What it does:
+
+1. **A key press drives at once.** The window publishes the command from inside the key event,
+   then repeats it 20 times a second while the key is held, so `cmd_vel_timeout` (0.15 s) never
+   runs out while you drive. The desktop's auto-repeat (a held key repeats after 500 ms, then
+   every 30 ms) changes nothing: Qt marks those events (`isAutoRepeat()`) and the window
+   ignores them.
+2. **Letting go stops the robot at once.** When the last key is released, the window publishes a
+   zero command from inside the release event, two more 50 and 100 ms later, then nothing. More
+   than one, because the controller subscribes best effort, so a lost message is not resent.
+   Publishing nothing afterwards leaves `cmd_vel` free for other command sources, such as Nav2
+   from Phase 3.
+3. **Losing the keyboard stops the robot too** (a dead-man switch). Clicking another window,
+   closing the window or Ctrl-C in its terminal publishes one zero command. The window does not
+   see the release of a key that was down at that moment, so it forgets the key: press it again
+   to drive on.
+
+**Why it feels direct.** A terminal receives characters, not keys, so teleop_twist_keyboard
+never learns that you released a key. It publishes one command per key event and leaves the
+stopping to `cmd_vel_timeout`, and a held key stops the robot for 0.2-0.3 s before the desktop's
+auto-repeat starts. A window receives a press and a release event for every key. Measured in
+headless Gazebo on 2026-11-06 at teleop_twist_keyboard's speeds (0.5 m/s, 1.0 rad/s), the real
+window driven offscreen by synthetic key events, ground truth, 3 runs each:
+
+| | Teleop window | teleop_twist_keyboard |
+|---|---|---|
+| Key released to the first zero command | under 2 ms | none: it sends nothing on release |
+| Key released to standing still | 0.34 s | 0.49 s (from the last key event) |
+| Motion after the release, driving / turning | 8.3 cm / 9.7° | 16.0 cm / 18.2° |
+| A held key | drives on without a stop | stops for 0.2-0.3 s after the press |
+| A short tap, driving / turning | 0.6 cm / 1.7° (held 0.1 s) | 1.4 cm / 3.9° (one key event) |
+
+What remains after a release is braking: `diff_drive_controller` slows the robot at its
+deceleration limits (1.5 m/s² and 3 rad/s², `controllers.yaml`). That takes speed ÷ deceleration
+seconds and covers speed² ÷ (2 × deceleration).
+
+**The default speeds, 0.3 m/s and 0.6 rad/s,** are chosen for precise driving: at both, braking
+takes 0.2 s (0.3 ÷ 1.5 and 0.6 ÷ 3.0). Measured: the robot stands still 0.21 s after a release,
+3.1 cm or 3.5° further on, against 0.34 s and 8.3 cm or 9.7° at 0.5 m/s and 1.0 rad/s. A tap
+moves it less, because it never reaches full speed: 0.7 cm or 1.7° for a 0.1 s tap, 0.2 cm or
+0.4° for 0.05 s. Raise the speeds with Q and E to cross the warehouse; its speed zones are a
+guide (0.5 m/s in the pick aisles, 0.3 m/s at the packing area and the staff crossing, in
+`warehouse_layout/config/layout.yaml`).
+
+Parameters, given with `-p name:=value` at the start. The window reads them once, so
+`ros2 param set` refuses them.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `linear_speed` | `0.3` | Driving speed at the start, m/s |
+| `angular_speed` | `0.6` | Turning speed at the start, rad/s |
+| `max_linear_speed` | `1.2` | Highest driving speed Q sets, m/s (the controller's forward limit) |
+| `max_angular_speed` | `2.0` | Highest turning speed E sets, rad/s (the controller's limit) |
+| `publish_rate` | `20.0` | Commands per second while a key is held; at least 10, the rule in `controllers.yaml` |
+| `frame_id` | `base_footprint` | `header.frame_id` of the commands |
+
+Write a decimal point (`linear_speed:=1.0`, not `1`): ROS refuses an integer for a
+floating-point parameter.
+
+How the code is split, so that each part can be tested on its own: `hold_to_drive.py` decides
+which command to send and when, with no Qt and no ROS; `teleop_window.py` turns Qt events into
+calls to it and publishes what it returns. The window runs in the main thread, as Qt requires;
+the ROS callbacks (the `/clock` subscription behind sim time, the parameter services) run in a
+second thread.
+
+The window needs a desktop; over SSH, use teleop_twist_keyboard.
+
+### teleop_twist_keyboard (in a terminal)
+
 ```bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r __ns:=/robot1 -p stamped:=true -p use_sim_time:=true
@@ -105,23 +213,26 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   `cmd_vel_timeout` (0.15 s). A wall-clock stamp is decades ahead of sim time, never looks old,
   and the robot keeps driving after you release the key (plan R1).
 
-teleop publishes one command per key event and nothing when you release a key, so each command
-drives the robot for 0.15 s before it brakes. Measured in Gazebo on 2026-11-06, at teleop's
-0.5 m/s and 1.0 rad/s:
+It reads characters from the terminal, so it needs no desktop, but it never sees a key release:
+it publishes one command per key event and nothing when you let go, so each command drives the
+robot for 0.15 s before it brakes. Measured in Gazebo on 2026-11-06, at its 0.5 m/s and
+1.0 rad/s:
 
-- **Tap** a key for a small, precise move: `j` turns the robot about 4°, `i` moves it about
-  1.4 cm, and it stands still within about 0.3 s of the key press.
+- **Tap** a key for a small move: `j` turns the robot about 4°, `i` moves it about 1.4 cm, and
+  it stands still within about 0.3 s of the key press.
 - **Hold** a key to drive. After you release it, the robot stands still about 0.5 s later:
   0.15 s until the timeout, then 0.33 s of braking from full teleop speed. A held key starts
   with a short stop (see [below](#things-that-look-wrong-but-are-not)).
 
-The hard limits (1.2 m/s forward, 0.3 m/s reverse, 2 rad/s) apply whatever teleop asks for.
+Both ways, the controller's hard limits (1.2 m/s forward, 0.3 m/s reverse, 2 rad/s) apply
+whatever teleop asks for: above 0.3 m/s, the window shows the backward command it sends, and the
+robot reverses at 0.3 m/s.
 
 ## Checking the robot by hand
 
 ```bash
 ros2 control list_controllers -c /robot1/controller_manager    # three controllers, all active
-ros2 topic info -v /robot1/cmd_vel     # TwistStamped, diff_drive_controller the only subscriber
+ros2 topic info -v /robot1/cmd_vel     # TwistStamped; diff_drive_controller subscribes, best effort
 ros2 topic info -v /robot1/tf          # publishers: robot_state_publisher and ekf_filter_node
 ros2 topic echo /robot1/odom/wheel --field child_frame_id      # base_footprint, no prefix
 ros2 topic hz /robot1/scan             # 10 Hz (when Gazebo runs at real time)
@@ -134,10 +245,16 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
 
 - `diff_drive_controller` logs `Velocity command timed out. Braking.` once per second whenever
   no command is arriving, including at rest. That is `cmd_vel_timeout` at work.
-- A held teleop key moves the robot a little, stops it for 0.2-0.3 s, then drives on smoothly.
-  The desktop repeats a held key only after a delay (GNOME: 500 ms, then every 30 ms), teleop
-  sends nothing in that gap, and `cmd_vel_timeout` (0.15 s) brakes the robot until the repeats
-  arrive. Taps are not affected.
+- A held teleop_twist_keyboard key moves the robot a little, stops it for 0.2-0.3 s, then drives
+  on smoothly. The desktop repeats a held key only after a delay (GNOME: 500 ms, then every
+  30 ms), teleop sends nothing in that gap, and `cmd_vel_timeout` (0.15 s) brakes the robot until
+  the repeats arrive. Taps are not affected, and the teleop window does not have this stop.
+- The teleop window's Python process uses about half a CPU core while it sends nothing:
+  0.4-0.6 cores measured on this laptop, the same as teleop_twist_keyboard side by side. Both
+  are Python nodes on sim time, and Gazebo publishes `/clock` 1000 times a second (one message
+  per 1 ms physics step; `docs/research/PC_ASSESSMENT.md`).
+- `ros2 param set` on the teleop window fails with `Trying to set a read-only parameter`: it
+  reads its parameters once, at the start. Give them with `-p` instead.
 - `ros2 topic info /tf` shows one publisher, `diff_drive_controller`, which never sends anything:
   the controller always creates its `/tf` publisher and only `enable_odom_tf: false` keeps it
   quiet. The controller manager runs inside Gazebo (or, for mock hardware, outside the `/tf`
@@ -149,4 +266,5 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
 ## Prerequisites
 
 `rosdep install --from-paths src --ignore-src -y` installs everything this package names,
-including the tools above (`teleop_twist_keyboard`, `rqt_tf_tree`, `tf2_tools`, `ros2controlcli`).
+including the tools above (`teleop_twist_keyboard`, `rqt_tf_tree`, `tf2_tools`, `ros2controlcli`)
+and `python_qt_binding` (Qt for Python, part of ROS desktop) for the teleop window.
