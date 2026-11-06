@@ -31,10 +31,14 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_pytest REQUIRED)
-  # The teleop logic, with no Qt and no ROS.
+  # The teleop logic, with no Qt and no ROS: the keys, and the clock choice and status line.
   ament_add_pytest_test(test_hold_to_drive test/test_hold_to_drive.py TIMEOUT 60)
+  ament_add_pytest_test(test_connection test/test_connection.py TIMEOUT 60)
   # The teleop window with synthetic key events, on Qt's offscreen platform (no screen needed).
   ament_add_pytest_test(test_teleop_window test/test_teleop_window.py TIMEOUT 60)
+  # The teleop node's namespace and clock choice. The test turns automatic discovery off, so
+  # its commands cannot reach a robot running on this machine.
+  ament_add_pytest_test(test_teleop_node test/test_teleop_node.py TIMEOUT 60)
 endif()
 
 ament_package()

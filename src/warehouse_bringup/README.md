@@ -12,9 +12,10 @@ driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 | `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners and the EKF. Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
 | `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
 | `warehouse_bringup/hold_to_drive.py` | The teleop window's logic: which command to send for the keys held, and when. Plain Python, no Qt and no ROS |
-| `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher) |
+| `warehouse_bringup/connection.py` | Which clock the teleop window stamps its commands with, and the text and colour of the line at its top. Plain Python, no Qt and no ROS |
+| `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher in `/robot1` by default, the look at the ROS graph that chooses the clock) |
 | `scripts/teleop_window.py` | Starts the window. CMake installs it as `lib/warehouse_bringup/teleop_window`, the file `ros2 run warehouse_bringup teleop_window` runs |
-| `test/` | pytest tests of the logic (`test_hold_to_drive.py`) and of the window with synthetic key events on Qt's offscreen platform (`test_teleop_window.py`); `colcon test` also runs the linters |
+| `test/` | pytest tests of the logic (`test_hold_to_drive.py`, `test_connection.py`), of the window with synthetic key events on Qt's offscreen platform (`test_teleop_window.py`), and of the node's namespace and clock choice with automatic discovery off (`test_teleop_node.py`); `colcon test` also runs the linters |
 
 ## Running
 
@@ -104,10 +105,18 @@ when there is no desktop.
 
 ### The teleop window
 
-With the simulation running, in a second terminal:
+With the simulation running, in a second terminal set up like the first (the same workspace
+sourced, the same `ROS_DOMAIN_ID`):
 
 ```bash
-ros2 run warehouse_bringup teleop_window --ros-args -r __ns:=/robot1 -p use_sim_time:=true
+ros2 run warehouse_bringup teleop_window
+```
+
+It drives robot1, the robot `sim.launch.py` starts by default, in Gazebo or with
+`hardware:=mock`. For another robot, give its namespace:
+
+```bash
+ros2 run warehouse_bringup teleop_window --ros-args -r __ns:=/robot2
 ```
 
 A small window opens. Click it, then hold keys to drive:
@@ -121,18 +130,52 @@ A small window opens. Click it, then hold keys to drive:
 | Q, Z | Driving speed up, down by 0.1 m/s |
 | E, C | Turning speed up, down by 0.1 rad/s |
 
-The window shows these keys, both speeds, the command it is sending and who listens. "Nothing
-subscribes to /robot1/cmd_vel" means a wrong namespace; "No /clock yet" means the simulation is
-not running.
+The window shows these keys, both speeds and the command it is sending. **The line at its top
+says whether the keys drive**, in colour:
 
-- `-r __ns:=/robot1` puts the window's node in the robot's namespace, so it publishes
-  `/robot1/cmd_vel`.
-- `use_sim_time:=true` (Gazebo only; leave it out for `hardware:=mock`): the window stamps each
-  command with its node's clock, and the controller judges a command's age from that stamp on
-  its own clock, as explained for teleop_twist_keyboard below.
-- No `stamped` parameter: the window always publishes `TwistStamped`.
+| Line | Meaning | The keys |
+|---|---|---|
+| Green: "Ready: the robot listens on /robot1/cmd_vel" | The robot listens, and the clock is chosen (the line says which) | drive |
+| Amber | Looking for the robot (the first 2 s), choosing the clock (up to 2 s after the robot appears), or waiting for the first `/clock` message | send nothing yet |
+| Red: "Nothing listens on /robot1/cmd_vel" | No robot on that topic. The simulation is not running, it runs with another `ROS_DOMAIN_ID` (the line shows the window's), or the robot is in another namespace. A robot it finds in another namespace is named, with the `-r __ns:=` to use | send nothing |
+| Red: "Sim time, but nothing publishes /clock" | The simulation has stopped, or `use_sim_time:=true` was given for `hardware:=mock` | send nothing |
 
-What it does:
+The terminal shows the same: the topic at the start, the clock once it is chosen, and every
+change to green or red.
+
+**The namespace.** The window's node starts in `/robot1`, so the relative topic `cmd_vel`
+becomes `/robot1/cmd_vel`. `--ros-args -r __ns:=/robot2` replaces that namespace (ROS applies
+the remap over the one the code gives), and `-r __ns:=/` gives none: `/cmd_vel`.
+
+**The clock.** The controller judges a command's age from its header stamp, on its own clock:
+sim time in Gazebo, wall time with `hardware:=mock`. A stamp from the other clock either never
+gets old (wall time in Gazebo: the controller never brakes by itself, plan R1) or is always too
+old (sim time with mock hardware: every command is ignored). So the window chooses its clock
+from what it finds, five times a second:
+
+- As soon as `/clock` has a publisher (Gazebo is running): sim time, and it stays on sim time.
+- Once the robot has listened for 2 s and nothing publishes `/clock`: wall time (mock
+  hardware). If `/clock` appears later after all, it switches to sim time.
+- Until one of these holds, the line is amber and the keys send nothing.
+- `-p use_sim_time:=true` sets sim time from the start. `-p use_sim_time:=false` changes
+  nothing: false is ROS's default, so the window cannot tell it from not given, and with Gazebo
+  running it still switches to sim time, the clock the controller there needs.
+
+No `stamped` parameter: the window always publishes `TwistStamped`.
+
+**If the keys do nothing:**
+
+1. Click the window. Keys go to the window that has the focus; at the bottom it says "Click
+   this window to drive" while it does not have the focus.
+2. Read the line at the top: it names the topic the window publishes on, and what is missing.
+3. Start the window from a terminal set up like the simulation's: the same workspace sourced
+   and the same `ROS_DOMAIN_ID`. Nodes in different domains never see each other.
+4. Hold ↑ and watch the Command line. It follows the keys whenever they reach the window, even
+   with no robot ("not sent: see the line at the top"). If it changes, the keys arrive and the
+   line at the top says why the robot does not move; if it does not, the window does not get
+   the keys (step 1).
+
+What it does, once the line is green:
 
 1. **A key press drives at once.** The window publishes the command from inside the key event,
    then repeats it 20 times a second while the key is held, so `cmd_vel_timeout` (0.15 s) never
@@ -192,10 +235,11 @@ Write a decimal point (`linear_speed:=1.0`, not `1`): ROS refuses an integer for
 floating-point parameter.
 
 How the code is split, so that each part can be tested on its own: `hold_to_drive.py` decides
-which command to send and when, with no Qt and no ROS; `teleop_window.py` turns Qt events into
-calls to it and publishes what it returns. The window runs in the main thread, as Qt requires;
-the ROS callbacks (the `/clock` subscription behind sim time, the parameter services) run in a
-second thread.
+which command to send and when, and `connection.py` which clock to use and what the line at
+the top says, both with no Qt and no ROS; `teleop_window.py` turns Qt events into calls to
+them, looks at the ROS graph, and publishes what they return. The window runs in the main
+thread, as Qt requires; the ROS callbacks (the graph check, the `/clock` subscription behind
+sim time, the parameter services) run in a second thread.
 
 The window needs a desktop; over SSH, use teleop_twist_keyboard.
 
@@ -249,10 +293,11 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
   on smoothly. The desktop repeats a held key only after a delay (GNOME: 500 ms, then every
   30 ms), teleop sends nothing in that gap, and `cmd_vel_timeout` (0.15 s) brakes the robot until
   the repeats arrive. Taps are not affected, and the teleop window does not have this stop.
-- The teleop window's Python process uses about half a CPU core while it sends nothing:
-  0.4-0.6 cores measured on this laptop, the same as teleop_twist_keyboard side by side. Both
-  are Python nodes on sim time, and Gazebo publishes `/clock` 1000 times a second (one message
-  per 1 ms physics step; `docs/research/PC_ASSESSMENT.md`).
+- In Gazebo, the teleop window's Python process uses about half a CPU core while it sends
+  nothing: 0.4-0.6 cores measured on this laptop, the same as teleop_twist_keyboard side by
+  side. Both are Python nodes on sim time, and Gazebo publishes `/clock` 1000 times a second
+  (one message per 1 ms physics step; `docs/research/PC_ASSESSMENT.md`). With
+  `hardware:=mock` the window stays on wall time and does not subscribe to `/clock`.
 - `ros2 param set` on the teleop window fails with `Trying to set a read-only parameter`: it
   reads its parameters once, at the start. Give them with `-p` instead.
 - `ros2 topic info /tf` shows one publisher, `diff_drive_controller`, which never sends anything:

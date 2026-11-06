@@ -215,39 +215,52 @@ has a `wh_shell` function for that).
 - **What it is:** driving the robot by keyboard. The teleop window of `warehouse_bringup`
   (since 2026-11-06) drives while a key is held and stops the moment it is released;
   `teleop_twist_keyboard` in a terminal, the Phase 1 demo, is the alternative without a desktop.
-- **What it does:** both publish `TwistStamped` commands on `/robot1/cmd_vel`, stamped with sim
-  time, so `diff_drive_controller` brakes once the newest command is 0.15 s old
-  (`cmd_vel_timeout`; 0.5 s until 2026-11-06). The window sees key presses and releases: it
-  publishes at once, repeats the command at 20 Hz while a key is held, sends three zero commands
-  over 0.1 s after the release and then nothing, and sends one zero command when it loses the
-  keyboard (another window clicked, window closed, Ctrl-C). Its speeds start at 0.3 m/s and
-  0.6 rad/s, so braking takes 0.2 s; Q/Z and E/C change them. Measured in headless Gazebo on
-  2026-11-06 at 0.5 m/s and 1.0 rad/s: after a release the robot stands still in 0.34 s, 8.3 cm
-  or 9.7° further on (teleop_twist_keyboard: 0.49 s after the last key event, 16.0 cm or
-  18.2°), and a held key drives without teleop_twist_keyboard's 0.2-0.3 s stop; at the window's
-  defaults, 0.21 s and 3.1 cm or 3.5°. A tap of `i` with teleop_twist_keyboard moves 1.4 cm and
-  a tap of `j` turns 3.9° (15.4 cm and 28.6° with the old 0.5 s timeout); a 0.1 s tap in the
-  window moves 0.7 cm or turns 1.7°. The controller's hard limits apply whatever teleop asks
-  for (1.2 m/s forward, 0.3 m/s reverse, 2 rad/s).
+- **What it does:** both publish `TwistStamped` commands on `/robot1/cmd_vel`, stamped with the
+  controller's clock (sim time in Gazebo), so `diff_drive_controller` brakes once the newest
+  command is 0.15 s old (`cmd_vel_timeout`; 0.5 s until 2026-11-06). The window needs no
+  arguments: its node starts in `/robot1`, and it chooses the clock itself (sim time as soon as
+  `/clock` has a publisher, wall time once the robot has listened 2 s without one). It publishes
+  only while the line at its top is green. The window sees key presses and releases: it publishes
+  at once, repeats the command at 20 Hz while a key is held, sends three zero commands over 0.1 s
+  after the release and then nothing, and sends one zero command when it loses the keyboard
+  (another window clicked, window closed, Ctrl-C). Its speeds start at 0.3 m/s and 0.6 rad/s, so
+  braking takes 0.2 s; Q/Z and E/C change them. Measured in headless Gazebo on 2026-11-06 at
+  0.5 m/s and 1.0 rad/s: after a release the robot stands still in 0.34 s, 8.3 cm or 9.7° further
+  on (teleop_twist_keyboard: 0.49 s after the last key event, 16.0 cm or 18.2°), and a held key
+  drives without teleop_twist_keyboard's 0.2-0.3 s stop; at the window's defaults, 0.21 s and
+  3.1 cm or 3.5°. A tap of `i` with teleop_twist_keyboard moves 1.4 cm and a tap of `j` turns
+  3.9° (15.4 cm and 28.6° with the old 0.5 s timeout); a 0.1 s tap in the window moves 0.7 cm or
+  turns 1.7°. The controller's hard limits apply whatever teleop asks for (1.2 m/s forward,
+  0.3 m/s reverse, 2 rad/s).
 - **How to use it:** with the simulation running (`ros2 launch warehouse_bringup
-  sim.launch.py`), in a second terminal:
+  sim.launch.py`), in a second terminal set up like the first (the same workspace sourced, the
+  same `ROS_DOMAIN_ID`):
 
   ```bash
-  ros2 run warehouse_bringup teleop_window --ros-args -r __ns:=/robot1 -p use_sim_time:=true
+  ros2 run warehouse_bringup teleop_window                               # drives robot1
+  ros2 run warehouse_bringup teleop_window --ros-args -r __ns:=/robot2   # another robot
   # or, in a terminal without a desktop:
   ros2 run teleop_twist_keyboard teleop_twist_keyboard \
     --ros-args -r __ns:=/robot1 -p stamped:=true -p use_sim_time:=true
   ```
 
-  In the window: click it, hold the arrows or W A S D to drive, Space stops. In
+  In the window: click it, hold the arrows or W A S D to drive, Space stops. The line at its
+  top is green ("Ready") when the keys drive; amber while it looks for the robot or chooses the
+  clock (2 s at most once the robot is there); red when nothing listens on the topic it names
+  (the simulation is not running, it runs with another `ROS_DOMAIN_ID`, or the robot is in
+  another namespace, which it names when it finds it), or when it is on sim time and nothing
+  publishes `/clock`. If the keys do nothing: click the window; read the line at the top; start
+  the window from a terminal set up like the simulation's; hold ↑ and watch the Command line,
+  which follows the keys whenever they reach the window, even with no robot. In
   teleop_twist_keyboard: `i` forward, `,` backward, `j`/`l` turn, `k` stop. Leave out
   `use_sim_time:=true` for `hardware:=mock`. Without it in Gazebo, the wall-clock stamps never
   look old and the robot keeps driving after you release the key (plan R1).
-- **Where it lives:** `warehouse_bringup/warehouse_bringup/` (`hold_to_drive.py`, the logic with
-  no Qt and no ROS; `teleop_window.py`, the window and its node), the tests in
-  `warehouse_bringup/test/`, and `warehouse_bringup/README.md` ("Driving with teleop", with the
-  keys, parameters and measurements); `teleop_twist_keyboard` is an exec dependency of
-  `warehouse_bringup`.
+- **Where it lives:** `warehouse_bringup/warehouse_bringup/` (`hold_to_drive.py`, the key logic,
+  and `connection.py`, the clock choice and the line at the top, both with no Qt and no ROS;
+  `teleop_window.py`, the window and its node), the tests in `warehouse_bringup/test/`, and
+  `warehouse_bringup/README.md` ("Driving with teleop", with the keys, the status line, a
+  checklist for keys that do nothing, parameters and measurements); `teleop_twist_keyboard` is
+  an exec dependency of `warehouse_bringup`.
 
 ### System tests (`warehouse_system_tests`)
 
@@ -447,6 +460,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-06 | Measured what this laptop can run (i5-1335U, 15 GiB, Iris Xe): today's stack in real time on about 1 of 12 threads; one robot with Nav2, two side cameras and ArUco at RTF 0.99; three robots with three Nav2 stacks at RTF 0.59-0.68 at the world's 1 ms physics step, about 1.0 at 2 ms or 5 ms. Phases 2-6 comfortable, 7-8b work with care, 9-12 need a larger physics step (to be tested in Phase 3) and Gazebo without its window | The owner asked whether the laptop can carry the project to the final showcase | done | [PC assessment](research/PC_ASSESSMENT.md), plan A4, R3 |
 | 2026-11-06 | `cmd_vel_timeout` 0.5 → 0.15 s in `controllers.yaml`. The rule this creates: every `cmd_vel` publisher publishes continuously at 10 Hz or more while the robot should move (Nav2's velocity smoother 20 Hz, its docking server 50 Hz, the tests 20 Hz), or the robot brakes between commands; a command whose stamp is already 0.15 s old on arrival is ignored. The system tests now derive their time windows from the value | The owner's request after driving the warehouse by teleop: each key event drove the robot for 0.5 s, too long for small, accurate moves. Measured in headless Gazebo (keyboard emulated like teleop on this desktop, 3 runs each, real-time factor 1.00): a tap of `j` turns 3.9° instead of 28.6°, a tap of `i` moves 1.4 instead of 15.4 cm; after a held key is released the robot stands still 0.49 s after the last key event instead of 0.84 s (0.15 s timeout plus 0.33 s braking). The cost: teleop sends one command per key event and GNOME repeats a held key only after 500 ms, so a held key now stops for 0.20-0.30 s before it drives on (0.5 s bridged that gap). Removing that stop needs a teleop that sees key releases: the teleop window (next row) | adopted | [controllers.yaml](../src/warehouse_description/config/controllers.yaml), plan R1, [warehouse_bringup](../src/warehouse_bringup/README.md#driving-with-teleop) |
 | 2026-11-06 | The teleop window, `ros2 run warehouse_bringup teleop_window`: a Qt window that publishes when a key is pressed, repeats the command at 20 Hz while it is held, sends three zero commands over 0.1 s when it is released and then nothing, and sends one zero command when the window loses the keyboard (a dead-man switch). Speeds start at 0.3 m/s and 0.6 rad/s, so braking takes 0.2 s. The key logic is plain Python, tested with pytest; `teleop_twist_keyboard` stays as the terminal alternative, and `cmd_vel_timeout` stays 0.15 s | The owner, after driving with 0.15 s: "remove the delay completely, I am not feeling it that in control". A terminal never sees a key release, so teleop_twist_keyboard leaves the stop to the timeout and stops a held key until auto-repeat starts. Measured in headless Gazebo (the real window offscreen, synthetic key events, ground truth, 3 runs each, real-time factor 1.00), at 0.5 m/s and 1.0 rad/s: the first zero command arrives under 2 ms after the release; the robot stands still 0.34 s after it instead of 0.49 s, 8.3 cm or 9.7° further on instead of 16.0 cm or 18.2°; a held key never stops (0.2-0.3 s before). At 0.3 m/s and 0.6 rad/s: 0.21 s and 3.1 cm or 3.5°. What remains is braking at the controller's deceleration limits. Cost: a Python node on sim time, 0.4-0.6 cores while open, the same as teleop_twist_keyboard | adopted | [warehouse_bringup](../src/warehouse_bringup/README.md#the-teleop-window) |
+| 2026-11-06 | The teleop window needs no arguments: `ros2 run warehouse_bringup teleop_window` starts its node in `/robot1` (`--ros-args -r __ns:=/robotN` still picks another robot) and chooses its clock itself: sim time as soon as `/clock` has a publisher, wall time once the robot has listened 2 s without one (`use_sim_time:=true` still forces sim time). It publishes nothing until the robot listens and the clock is chosen, and a coloured line at its top says so: green when the keys drive, amber while it looks for the robot or chooses the clock, red when nothing listens on the topic it names, with the likely causes and any robot it finds in another namespace | The owner started the simulation, then the window with no arguments: its node came up in the root namespace and published `/cmd_vel` with wall-clock stamps while the robot listens on `/robot1/cmd_vel`, so real key presses did nothing, and the small status text that said so went unnoticed. Verified in headless Gazebo, with the real window offscreen and keys sent through Qt's window path: with no arguments it drove robot1 (54.8 cm for a 2 s hold of the up arrow, standing still 0.21 s after the release, all stamps in sim time); with `hardware:=mock` it chose wall time after 2 s and the robot moved; with `-r __ns:=/robot2` it published only on `/robot2/cmd_vel` and its red line named `/robot1/cmd_vel`; with nothing running it published nothing | adopted | [warehouse_bringup](../src/warehouse_bringup/README.md#the-teleop-window) |
 
 ## Planned features
 
