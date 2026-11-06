@@ -37,8 +37,10 @@ setup(
     maintainer='Tanay Baisware',
     maintainer_email='tanay.baisware@gmail.com',
     description='The warehouse from one file: layout.yaml, its loader and schema check, '
-                'the layout fit rules, a to-scale preview picture, and the generators of '
-                'the Gazebo world, the location registry and the expected inventory.',
+                'the layout fit rules, a to-scale preview picture, the generators of the '
+                'Gazebo world, the location registry and the expected inventory, and the map '
+                'tools: rasterize (the map the lidar would make) and check_map (a saved map '
+                'against the layout).',
     license='Apache-2.0',
     extras_require={
         'test': [
@@ -47,8 +49,10 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'check_map = warehouse_layout.check_map:main',
             'generate = warehouse_layout.cli:main',
             'preview = warehouse_layout.preview:main',
+            'rasterize = warehouse_layout.rasterize:main',
         ],
     },
 )

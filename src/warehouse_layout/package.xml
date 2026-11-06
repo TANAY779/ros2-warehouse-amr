@@ -3,15 +3,19 @@
 <package format="3">
   <name>warehouse_layout</name>
   <version>0.1.0</version>
-  <description>The warehouse from one file: layout.yaml, its loader and schema check, the layout fit rules, a to-scale preview picture, and the generators of the Gazebo world, the location registry and the expected inventory.</description>
+  <description>The warehouse from one file: layout.yaml, its loader and schema check, the layout fit rules, a to-scale preview picture, the generators of the Gazebo world, the location registry and the expected inventory, and the map tools: rasterize (the map the lidar would make) and check_map (a saved map against the layout).</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
 
   <!-- model.load() finds layout.yaml in the package's share directory -->
   <exec_depend>ament_index_python</exec_depend>
-  <!-- The preview picture -->
+  <!-- The preview picture and check_map's overlay -->
   <exec_depend>python3-matplotlib</exec_depend>
+  <!-- The map tools: grids (numpy), the KD-tree of check_map's ICP fit (scipy), map images (Pillow) -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <!-- robot_config: the robot's dimensions for the fit rules and the preview -->
   <exec_depend>warehouse_description</exec_depend>

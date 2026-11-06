@@ -11,6 +11,9 @@ dimensions come from `robot.yaml` through `warehouse_description.robot_config`.
 
 From the same `layout.yaml` it generates three files that are committed to git: the Gazebo
 world, the location registry and the expected inventory ([Generated files](#generated-files)).
+Two map tools compare the layout with what the lidar sees ([Map tools](#map-tools)):
+`rasterize` draws the map an ideal SLAM run would make, and `check_map` measures how well a
+saved map lines up with the layout.
 
 ## Try it
 
@@ -20,7 +23,9 @@ After `colcon build --symlink-install` and `source install/setup.bash`:
 ros2 run warehouse_layout preview --out /tmp/layout.png    # draws it, prints the fit rules
 ros2 run warehouse_layout generate                         # from the workspace root
 ros2 run warehouse_layout generate --check                 # exit 1 if a generated file is stale
-python3 -m pytest src/warehouse_layout/test -q             # about 5 s
+ros2 run warehouse_layout rasterize --out /tmp/layout_map  # the map the lidar would make
+ros2 run warehouse_layout check_map /tmp/layout_map.yaml --overlay /tmp/overlay.png
+python3 -m pytest src/warehouse_layout/test -q             # about 6 s
 ```
 
 `preview` prints one `[PASS]` or `[FAIL]` line per fit rule with what it measured, writes the
@@ -45,6 +50,9 @@ between edits (only after a new file appears).
 | `warehouse_layout/cli.py` | The `generate` command: writes the generated files into the source tree, or compares them (`--check`) |
 | `warehouse_layout/world.py`, `registry.py`, `inventory.py` | The generators of the Gazebo world, the location registry and the expected inventory |
 | `warehouse_layout/formatting.py` | What makes the generated files byte-identical run to run: fixed number formats, YAML written as text, the do-not-edit notice |
+| `warehouse_layout/occupancy.py` | Map files in map_server's format (a YAML file and a PGM image): `OccupancyMap`, `load()` as map_server reads them, `save()` as map_saver_cli writes them. A malformed file raises `MapError` naming the file and the problem |
+| `warehouse_layout/rasterize.py` | What the lidar sees at its scan plane: `surfaces()` (the faces it can see, as points with directions) and `rasterize()` (the map an ideal SLAM run would make); the `rasterize` command |
+| `warehouse_layout/check_map.py` | The `check_map` command: the ICP fit of a map to the faces, the distances, the acceptance criteria and the overlay picture |
 | `generated/locations.yaml`, `generated/expected_inventory.yaml` | Generated and committed: do not edit (the world goes to `warehouse_gazebo/worlds/`) |
 | `test/test_rules.py` | Every rule passes on `layout.yaml`, and every rule fails on a copy with one deliberate mistake (a 1.5 m aisle, a 0.30 m plinth, a pick pose 0.4 m from a shelf, robot1 off the origin, 240 totes, a goal in a keepout, two objects overlapping, ...) with a message that names the object |
 | `test/test_model.py` | What the model derives (slot positions, bay numbers, dock poses, walls round the recess, ...) and the schema errors |
@@ -53,6 +61,9 @@ between edits (only after a new file appears).
 | `test/test_registry.py`, `test/test_inventory.py` | The registry and the inventory read back with PyYAML: the counts the plan quotes, unique IDs, poses equal to the layout's, tote IDs 20 and up in slot order, every SKU in stock |
 | `test/test_generate.py` | The `generate` command on a temporary copy of the source tree: it writes, `--check` passes, a hand edit or a missing file makes `--check` exit 1 |
 | `test/test_generated_files_are_current.py` | The installed generated files are what the installed layout gives now, byte for byte; generating twice, and in two processes, gives the same bytes |
+| `test/test_occupancy.py` | Map files written and read back: the PGM's row order, map_saver_cli's keys and thresholds, why the free threshold is 0.196, `negate`, RGB images, the origin's yaw, and a clear error for each kind of malformed file |
+| `test/test_rasterize.py` | What the lidar sees: walls only on their inner face, plinths on their faces, the dock bars and plates as free floor, the fence and its open gate, the faces and the occupied cells in agreement, hidden faces left out; the command's files and their bytes |
+| `test/test_check_map.py` | The rasterized layout passes with no offset; the same map shifted 0.15 m, turned 1 degree, given 1.8 % ghost cells or a turned origin is measured as made and fails exactly that criterion; 0.5 % stray cells pass; a map of somewhere else, an empty map and malformed map files give clear errors |
 | `test/test_copyright.py`, `test_flake8.py`, `test_pep257.py` | The lint tests `ros2 pkg create` generates. `test/conftest.py` runs them from the package directory, as `colcon test` does, so they also work when pytest starts from the workspace root |
 
 ## Frame and units
@@ -210,6 +221,138 @@ twice in one process and once in each of two processes with different `PYTHONHAS
 - Every pose is in the map frame and every model stays at the origin, so a number in the SDF is
   the number in `layout.yaml` and the preview, and a layout edit changes only the lines of the
   parts it moves.
+
+## Map tools
+
+The lidar scans one plane, 0.34 m above the floor (`scan_plane_height`, from `robot.yaml`). It
+sees a solid if that plane cuts it: walls, pilasters, shelf plinths, guards, the counter, dock
+pedestals, the fence's kick plates and the fixtures. It never sees the dock contact bars
+(0.12 m) or base plates (0.01 m). `test_world.py` checks that the Gazebo world agrees, so the
+layout's solids are exactly what the lidar can see. Both tools start from there.
+
+### rasterize: the map an ideal SLAM run would make
+
+```bash
+ros2 run warehouse_layout rasterize --out /tmp/layout_map    # layout_map.yaml and .pgm
+```
+
+```text
+wrote /tmp/layout_map.yaml and /tmp/layout_map.pgm: 636 x 428 cells of 0.05 m, origin (-2.2, -2.7, 0)
+6473 occupied cells (the faces the lidar sees at 0.34 m), 214869 free, 50866 unknown
+below the scan plane, so not drawn: contact_bar, dock_plate
+```
+
+- **Occupied:** the cells just behind every face the lidar can see (a solid cell next to a free
+  one). That is where its beams end, so a SLAM map has its occupied cells there too.
+- **Free:** the rest of the hall floor, including the floor under the dock contact bars.
+- **Unknown:** what the lidar cannot see: the inside of the solids (shelf plinths, the office)
+  and everything behind the walls.
+- **Map frame = world frame:** the origin's yaw is 0 and its lower-left corner sits on a
+  multiple of 0.05 m, so cell edges fall on the layout's round numbers (the hall's inner faces
+  at x -1.5 / 28.5, y -2.0 / 18.0). Nothing has to be shifted or turned.
+
+It is the fallback map of plan risk R6 (AMCL can run on it if the SLAM map fails), and in
+Phase 3 the grid on which the keepout and speed masks are drawn. `--resolution` changes the
+cell size; `--layout` and `--robot` work as in `preview`. The same layout always gives the same
+bytes.
+
+The files are what `map_saver_cli` writes in trinary mode, so `map_server` loads them as they
+are. The PGM holds one byte per cell, north row first: 0 (black) occupied, 254 free, 205
+unknown. The YAML:
+
+```yaml
+image: 'layout_map.pgm'
+mode: trinary
+resolution: 0.05
+origin: [-2.2, -2.7, 0.0]     # x, y, yaw of the image's lower-left corner
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196
+```
+
+**Why `free_thresh` is 0.196, not 0.25.** map_server turns a pixel into an occupancy of
+1 - value / 255. An unknown pixel (205) gives 50 / 255 = 0.19608. With `free_thresh: 0.25` it
+would load as free, and everything behind the walls would become floor. map_saver_cli writes
+0.196 in trinary mode for this reason, and so does `rasterize`. Keep it if you edit a map by
+hand.
+
+### check_map: does a saved map line up with the layout?
+
+For the SLAM map of plan F5, saved with `map_saver_cli`:
+
+```bash
+ros2 run warehouse_layout check_map src/warehouse_navigation/maps/warehouse.yaml --overlay /tmp/overlay.png
+```
+
+On the rasterized layout it prints:
+
+```text
+map /tmp/layout_map.yaml: 636 x 428 cells of 0.05 m, origin (-2.2, -2.7, 0), 6473 occupied
+layout "warehouse": 33433 points on the faces the lidar sees at 0.34 m
+best fit after 4 ICP iterations: 6473 of 6473 cells within 0.25 m of a face took part
+[PASS] best-fit offset <= 0.05 m: 0.001 m (move the map x +0.000, y +0.001 m)
+[PASS] best-fit rotation <= 0.2 deg: 0.001 deg (turn the map -0.001 deg)
+[PASS] 95% of occupied cells within 0.10 m of a face: 100.0% (P50 0.025 m, P95 0.026 m, max 0.03 m)
+[PASS] at most 1% of occupied cells farther than 0.25 m from every face (ghost walls): 0.00% (0 cells)
+[PASS] map origin yaw 0: 0 rad
+wrote /tmp/overlay.png
+5 of 5 map checks pass
+```
+
+It takes the centre of every occupied cell, fits the cells to the faces the lidar can see (ICP,
+below), and then measures each cell's distance to the nearest face after that fit. The lines
+are plan F5's acceptance criteria:
+
+| Line | What it measures | Passes when | Why that limit |
+|---|---|---|---|
+| best-fit offset | How far the fit moves the map's origin (robot1's spawn) to put the map on the layout, and that move in x and y | <= 0.05 m | One cell. The map frame must be the world frame (P2-D2), or every AMCL pose is off by the same amount |
+| best-fit rotation | How far the fit turns the map, about the origin | <= 0.2 deg | Turning 0.2 deg moves a wall 30 m away by 0.10 m (two cells) |
+| within 0.10 m | The share of occupied cells within 0.10 m of a face; also the median distance (P50), the distance 95 % of the cells stay within (P95) and the largest | >= 95 % | SLAM draws a wall one or two cells thick; the lidar's noise is 0.01 m |
+| ghost walls | The share of occupied cells farther than 0.25 m from every face | <= 1 % | A cell that far from every face is a wall that is not there: a false loop closure that doubled an aisle, or something in the world that is not in `layout.yaml` |
+| origin yaw | The yaw in the map's `origin` | 0 | Nav2's AMCL and costmaps use only the origin's x and y, and the Phase 4 dashboard draws the map unturned |
+
+A cell's centre lies half a cell (0.025 m) from the face it holds, so a perfect map reads P50
+0.025 m. Exit codes: 0 every line passes; 1 a line fails, or no fit is possible (an empty map,
+or a map of somewhere else); 2 the map file, `layout.yaml` or `robot.yaml` cannot be read,
+or the overlay cannot be written. A malformed map file gives an error that names the file and
+the problem, for example
+`missing key resolution`. check_map reads maps as map_server does, in trinary or scale mode.
+
+**The overlay** draws the map where the file places it, with the layout's faces in blue on top.
+Cells within 0.10 m of a face are black, cells 0.10-0.25 m away amber squares, ghost cells red
+crosses; those distances are measured after the fit. So the colours show the map's shape
+(blurred or ghost walls), and a gap between the black cells and the blue lines shows an offset
+or a turn: a map turned by 1 degree drifts away from the faces the farther it is from the
+origin. The picture is written even when a line fails (or no fit is possible).
+
+### Why ICP
+
+To measure how far the map is from the layout, each occupied cell must be paired with the face
+it belongs to; but to pair them, you must already know how the map sits on the layout. ICP
+(iterative closest point) breaks this loop by alternating:
+
+1. Pair every cell with the nearest face point. A KD-tree (`scipy.spatial.cKDTree`) finds it
+   among the 33,000 face points by narrowing down the space instead of comparing with every
+   point, so all the cells are paired in a few milliseconds.
+2. Solve for the small turn and shift that best move the cells onto their faces (least
+   squares).
+3. Move the map and pair again. Stop when the map stops moving.
+
+- **Point-to-plane:** a cell is pulled across its face, never along it. A cell on a long wall
+  has no true partner along the wall (its nearest face point is just the foot of a
+  perpendicular), so only the distance across the wall is an error. On this warehouse it
+  settles in about 5 iterations to within a millimetre; the textbook point-to-point form (pull
+  each cell towards the face point itself) needed 10 to 30 and stopped 2 to 3 mm short.
+- **A shrinking cut-off:** pairs farther apart than a cut-off take no part, so ghost walls
+  cannot drag the fit. The cut-off starts at 1.0 m, so a map that is off by more than a few
+  cells is still caught (a 0.5 m shift or a 2 degree turn is found), and shrinks to 0.25 m,
+  the ghost-wall distance.
+- **Distances after the fit:** the offset and the rotation say where the map sits; the
+  distances say what shape it has. A perfect map shifted by 0.15 m fails the offset line and
+  passes the others, so the output tells you which problem you have.
+- **About the origin:** the fit turns the map about the world origin, robot1's spawn, where
+  the mapping run starts. Its result is the transform from the map frame to the world frame,
+  which should be the identity (P2-D2).
 
 ## Design notes
 
