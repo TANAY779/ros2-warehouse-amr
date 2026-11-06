@@ -9,6 +9,8 @@
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- Installs the Python package warehouse_bringup (the teleop window) -->
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -30,10 +32,17 @@
   <exec_depend>rqt_tf_tree</exec_depend>
   <exec_depend>teleop_twist_keyboard</exec_depend>
   <exec_depend>tf2_tools</exec_depend>
+  <!-- The teleop window (ros2 run warehouse_bringup teleop_window) -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>python_qt_binding</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>rclpy</exec_depend>
 
   <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
