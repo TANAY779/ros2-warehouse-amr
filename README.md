@@ -41,6 +41,8 @@ recorded in [docs/decisions/](docs/decisions/).
   tags for docking and inventory (Phases 7-8) and the optional learned tote detector (8b), with
   the plan changes it proposes. The learned method's research report is
   [docs/research/ML_PERCEPTION.md](docs/research/ML_PERCEPTION.md).
+- [docs/research/PC_ASSESSMENT.md](docs/research/PC_ASSESSMENT.md): what the development laptop
+  can run, measured: one robot up to cameras and Nav2, and three robots with Nav2.
 
 ## Quick start
 
