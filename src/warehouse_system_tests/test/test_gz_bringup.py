@@ -65,7 +65,6 @@ LIDAR = ROBOT['lidar_front']
 OUTLINE_HALF_LENGTH = ROBOT['footprint']['length'] / 2.0  # m
 OUTLINE_HALF_WIDTH = ROBOT['footprint']['width'] / 2.0  # m
 CMD_VEL_TIMEOUT = DRIVE['cmd_vel_timeout']  # s
-MAX_DECELERATION = -DRIVE['linear']['x']['max_deceleration']  # m/s^2, as a positive number
 
 # A static box for the scanner to see (test_06). In the empty world every ray would miss,
 # and a blind, turned or misplaced scanner would pass the self-hit check. The box stands
@@ -141,7 +140,7 @@ class TestGazeboBringup(unittest.TestCase):
             c.last is not None for c in self.sources().values()), 15.0), 'no odometry')
 
     def drive(self, linear, angular, until, timeout_s):
-        """Publish stamped commands at 20 Hz until ``until()`` is true (False on timeout)."""
+        """Publish stamped commands every COMMAND_PERIOD until ``until()`` is true (else False)."""
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             command = TwistStamped()
@@ -151,7 +150,7 @@ class TestGazeboBringup(unittest.TestCase):
             command.twist.angular.z = angular
             self.cmd_vel.publish(command)
             self.last_command_stamp = rh.stamp_to_seconds(command.header.stamp)
-            rh.spin_for(self.node, 0.05)
+            rh.spin_for(self.node, rh.COMMAND_PERIOD)
             if until():
                 return True
         return False
@@ -351,8 +350,9 @@ class TestGazeboBringup(unittest.TestCase):
         self.drive(speed, 0.0, timeout_s=30.0, until=lambda: (
             self.node.get_clock().now().nanoseconds * 1e-9 - sim_start >= 2.0))
         last = self.last_command_stamp
-        # No zero command from here on: only cmd_vel_timeout can stop the robot.
-        stop_by = last + CMD_VEL_TIMEOUT + speed / MAX_DECELERATION + 0.3
+        # No zero command from here on: only cmd_vel_timeout can stop the robot. The windows
+        # are derived from controllers.yaml (see cmd_vel_timeout_windows).
+        (moving_from, moving_to), stop_by = rh.cmd_vel_timeout_windows(last, speed)
         self.assertTrue(rh.spin_until(
             self.node,
             lambda: rh.stamp_to_seconds(self.truth.last.header.stamp) > stop_by + 0.5, 30.0))
@@ -361,10 +361,22 @@ class TestGazeboBringup(unittest.TestCase):
             return [m.twist.twist.linear.x for m in source.messages
                     if begin <= rh.stamp_to_seconds(m.header.stamp) <= end]
 
-        still_moving = speeds(self.wheel, last + 0.1, last + 0.3)
+        still_moving = speeds(self.wheel, moving_from, moving_to)
         stopped_wheel = speeds(self.wheel, stop_by, stop_by + 10.0)
         stopped_truth = speeds(self.truth, stop_by, stop_by + 10.0)
-        self.assertTrue(still_moving and min(still_moving) > 0.8 * speed, still_moving)
+        print(f'cmd_vel_timeout {CMD_VEL_TIMEOUT} s: {len(still_moving)} odom/wheel samples from '
+              f'+{moving_from - last:.2f} to +{moving_to - last:.2f} s after the last command, '
+              f'lowest {min(still_moving, default=float("nan")):.3f} m/s; standing still from '
+              f'+{stop_by - last:.2f} s')
+        # odom/wheel arrives at publish_rate: the window holds all its samples but perhaps one
+        # at an edge (5 at 0.15 s and 50 Hz), and at least 3, or the check would say little.
+        expected = round((moving_to - moving_from) * DRIVE['publish_rate'])
+        self.assertGreaterEqual(len(still_moving), max(3, expected - 1), still_moving)
+        # odom/wheel is a 0.1 s rolling mean, so braking shows in it gradually: 95 % fails a
+        # robot that starts braking more than about 0.06 s before the timeout, such as one
+        # that brakes as soon as one command is missing. The wheels hold the commanded speed
+        # within 1 % in Gazebo and exactly on mock hardware.
+        self.assertGreater(min(still_moving), 0.95 * speed, still_moving)
         self.assertTrue(stopped_wheel and max(abs(v) for v in stopped_wheel) < 0.02, stopped_wheel)
         self.assertTrue(stopped_truth and max(abs(v) for v in stopped_truth) < 0.02, stopped_truth)
 

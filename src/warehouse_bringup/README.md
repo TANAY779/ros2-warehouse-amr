@@ -101,12 +101,21 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 - `-r __ns:=/robot1` puts teleop in the robot's namespace, so it publishes `/robot1/cmd_vel`.
 - `stamped:=true`: Jazzy's `diff_drive_controller` 4.42 accepts only `TwistStamped`.
 - `use_sim_time:=true` (Gazebo only; leave it out for `hardware:=mock`): the controller computes
-  the age of a command from its header stamp and brakes after `cmd_vel_timeout` (0.5 s). A
-  wall-clock stamp is decades ahead of sim time, never looks old, and the robot keeps driving
-  after you release the key (plan R1).
+  the age of a command from its header stamp and brakes once the newest command is older than
+  `cmd_vel_timeout` (0.15 s). A wall-clock stamp is decades ahead of sim time, never looks old,
+  and the robot keeps driving after you release the key (plan R1).
 
-Hold a key to drive; release it and the robot stops within 0.5 s plus braking. The hard limits
-(1.2 m/s forward, 0.3 m/s reverse, 2 rad/s) apply whatever teleop asks for.
+teleop publishes one command per key event and nothing when you release a key, so each command
+drives the robot for 0.15 s before it brakes. Measured in Gazebo on 2026-11-06, at teleop's
+0.5 m/s and 1.0 rad/s:
+
+- **Tap** a key for a small, precise move: `j` turns the robot about 4°, `i` moves it about
+  1.4 cm, and it stands still within about 0.3 s of the key press.
+- **Hold** a key to drive. After you release it, the robot stands still about 0.5 s later:
+  0.15 s until the timeout, then 0.33 s of braking from full teleop speed. A held key starts
+  with a short stop (see [below](#things-that-look-wrong-but-are-not)).
+
+The hard limits (1.2 m/s forward, 0.3 m/s reverse, 2 rad/s) apply whatever teleop asks for.
 
 ## Checking the robot by hand
 
@@ -125,6 +134,10 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
 
 - `diff_drive_controller` logs `Velocity command timed out. Braking.` once per second whenever
   no command is arriving, including at rest. That is `cmd_vel_timeout` at work.
+- A held teleop key moves the robot a little, stops it for 0.2-0.3 s, then drives on smoothly.
+  The desktop repeats a held key only after a delay (GNOME: 500 ms, then every 30 ms), teleop
+  sends nothing in that gap, and `cmd_vel_timeout` (0.15 s) brakes the robot until the repeats
+  arrive. Taps are not affected.
 - `ros2 topic info /tf` shows one publisher, `diff_drive_controller`, which never sends anything:
   the controller always creates its `/tf` publisher and only `enable_odom_tf: false` keeps it
   quiet. The controller manager runs inside Gazebo (or, for mock hardware, outside the `/tf`

@@ -46,10 +46,19 @@
     pose_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
     twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
 
-    # Brake when no command arrived for 0.5 s. The age of a command is computed from its
-    # header stamp, so every publisher must stamp with this controller's clock: sim time in
-    # Gazebo. A wall-clock stamp never times out in simulation (plan R1).
-    cmd_vel_timeout: 0.5
+    # Brake (at the deceleration limits below) once the newest command is older than 0.15 s;
+    # a command that is already that old when it arrives is ignored. 0.15 s since 2026-11-06,
+    # at the owner's request: with 0.5 s a tap on a teleop key kept the robot going for half a
+    # second, too long for small, accurate moves.
+    # The rule this creates for every cmd_vel publisher: while the robot should move, publish
+    # continuously at 10 Hz or more (Nav2's controller server and velocity smoother publish at
+    # 20 Hz, its docking server at 50 Hz, the system tests at 20 Hz), or the robot brakes
+    # between commands. teleop_twist_keyboard publishes once per key event, so a held key
+    # stops briefly until the keyboard's auto-repeat starts (README of warehouse_bringup).
+    # The age of a command is computed from its header stamp, so every publisher must stamp
+    # with this controller's clock: sim time in Gazebo. A wall-clock stamp never times out in
+    # simulation (plan R1).
+    cmd_vel_timeout: 0.15
 
     # Hard limits from robot.yaml, the same in both directions of travel. Each acceleration
     # limit carries the sign of the velocity change it limits: speeding up forward and braking
