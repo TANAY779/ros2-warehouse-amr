@@ -8,9 +8,10 @@ driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 
 | File | What it does |
 |---|---|
-| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
-| `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners and the EKF. Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
+| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)), the map server (system scope, `localization:=amcl` only) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
+| `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners, the EKF, and slam_toolbox or AMCL ([Mapping and localization](#mapping-and-localization)). Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
 | `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
+| `rviz/map.rviz` | RViz view of the map, used instead of `robot.rviz` when `localization` is not `none`: fixed frame `map`, the whole hall from above, the map (`/map`, transient local), scan, model, TF, AMCL's particle cloud and pose, the ground-truth pose (magenta arrow) and the "2D Pose Estimate" tool on the relative `initialpose` |
 | `warehouse_bringup/hold_to_drive.py` | The teleop window's logic: which command to send for the keys held, and when. Plain Python, no Qt and no ROS |
 | `warehouse_bringup/connection.py` | Which clock the teleop window stamps its commands with, and the text and colour of the line at its top. Plain Python, no Qt and no ROS |
 | `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher in `/robot1` by default, the look at the ROS graph that chooses the clock) |
@@ -34,6 +35,10 @@ ros2 launch warehouse_bringup sim.launch.py headless:=true
 # No simulator: mock hardware, wall clock. What CI tests
 ros2 launch warehouse_bringup sim.launch.py hardware:=mock
 
+# Make a map with slam_toolbox, or localize on the saved map with AMCL (Gazebo only)
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl
+
 # World and robot separately, as Phase 9 will do once per robot (two terminals)
 ros2 launch warehouse_gazebo gazebo.launch.py headless:=true
 ros2 launch warehouse_bringup robot.launch.py namespace:=robot1
@@ -42,9 +47,10 @@ ros2 launch warehouse_bringup robot.launch.py namespace:=robot1
 In the warehouse, RViz (fixed frame `odom`) shows the scan outlining the walls and the shelf
 plinths.
 
-`robot.launch.py` takes the same `namespace`, `hardware`, `use_sim_time`, `x`, `y` and `yaw`
-arguments as `sim.launch.py` (table below); it does not start Gazebo or RViz. It does not know
-the world either, so it does not read the registry: its `x`, `y` and `yaw` default to `0.0`.
+`robot.launch.py` takes the same `namespace`, `hardware`, `use_sim_time`, `x`, `y`, `yaw` and
+`localization` arguments as `sim.launch.py` (table below); it does not start Gazebo, the map
+server or RViz. It does not know the world either, so it does not read the registry: its `x`,
+`y` and `yaw` default to `0.0`.
 
 | Argument | Default | Meaning |
 |---|---|---|
@@ -55,6 +61,8 @@ the world either, so it does not read the registry: its `x`, `y` and `yaw` defau
 | `headless` | `false` | No Gazebo window and no RViz |
 | `rviz` | `true` | Start RViz (never when headless) |
 | `x`, `y`, `yaw` | empty | Spawn pose in the world, in m and rad (`gz` only). Each one not given comes from the location registry, or is 0: [Where the robot spawns](#where-the-robot-spawns) |
+| `localization` | `none` | `none` (odometry only), `slam` (map with slam_toolbox) or `amcl` (localize on `map` with AMCL). Needs `hardware:=gz`: [Mapping and localization](#mapping-and-localization) |
+| `map` | `warehouse_navigation/maps/warehouse.yaml` | The map `localization:=amcl` serves on `/map`, a `map_server` YAML file (`sim.launch.py` only) |
 
 ## Where the robot spawns
 
@@ -95,6 +103,58 @@ Check where the robot is (ground truth, the world pose, `frame_id` `map`):
 
 ```bash
 ros2 topic echo /robot1/ground_truth/odom --once --field pose.pose.position   # about 0, 0
+```
+
+## Mapping and localization
+
+`localization:=slam` adds slam_toolbox to the robot, which builds a map of the warehouse.
+`localization:=amcl` adds AMCL to the robot, which localizes on a saved map, and starts the map
+server in the system scope to serve that map. The argument takes one value, so the two never run
+together (both would publish `map -> odom`). `warehouse_navigation`'s README explains SLAM, AMCL,
+their parameters and how to make the map.
+
+| | `none` | `slam` | `amcl` |
+|---|---|---|---|
+| Robot scope (`/robot1`) | EKF | + `slam_toolbox` | + `amcl`, `lifecycle_manager_localization` |
+| System scope (`/`) | | | `map_server`, `lifecycle_manager_map`, serving `map` on `/map` |
+| `map -> odom` from | nobody | slam_toolbox | AMCL |
+| RViz | `robot.rviz` (fixed frame `odom`) | `map.rviz` (fixed frame `map`) | `map.rviz` |
+
+Both are included inside `robot.launch.py`'s namespaced group, after the `/tf` remaps, like the
+EKF: they read the robot's own `scan` and `tf`. AMCL starts at the spawn pose: the spawn pose is
+a pose in the map frame, because the map frame is the Gazebo world frame.
+
+Both need the lidar, so mock hardware refuses them before anything starts:
+
+```text
+[ERROR] [launch]: Caught exception in launch (see debug for traceback): localization:=slam needs
+the lidar, and hardware:=mock has none: mock hardware simulates the wheels and the IMU only. Use
+hardware:=gz, or leave localization at none.
+```
+
+With `localization:=amcl`, `sim.launch.py` checks that the map file exists before Gazebo starts.
+Until the warehouse map is saved ([its README](../warehouse_navigation/maps/README.md)), use a
+map drawn from the layout:
+
+```bash
+ros2 run warehouse_layout rasterize --out /tmp/layout_map
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl map:=/tmp/layout_map.yaml
+```
+
+`robot.launch.py localization:=amcl` on its own needs the map server next to it, as Phase 9 will
+run it: the system scope once, the robot scope per robot.
+
+```bash
+ros2 launch warehouse_navigation map_server.launch.py map:=/tmp/layout_map.yaml
+```
+
+Check by hand:
+
+```bash
+ros2 lifecycle get /robot1/slam_toolbox   # localization:=slam: active
+ros2 lifecycle get /map_server            # localization:=amcl: active
+ros2 lifecycle get /robot1/amcl           # localization:=amcl: active
+ros2 topic info -v /robot1/tf             # publishers: robot_state_publisher, ekf_filter_node, and slam_toolbox or amcl
 ```
 
 ## Driving with teleop

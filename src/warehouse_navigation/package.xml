@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_navigation</name>
   <version>0.1.0</version>
-  <description>Localization and navigation of the warehouse AMR: the robot_localization EKF (Phase 1), later AMCL, maps and Nav2.</description>
+  <description>Localization and navigation of the warehouse AMR: the robot_localization EKF (Phase 1), mapping with slam_toolbox, AMCL on the saved map (Phase 2), later Nav2.</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -12,11 +12,24 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <!-- slam.launch.py: the lifecycle transitions it requests -->
+  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>robot_localization</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <!-- map_server, and map_saver_cli to save a map (maps/README.md) -->
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
 
   <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_index_python</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+  <!-- test_nav_params.py: the lidar's ranges through robot_config -->
+  <test_depend>warehouse_description</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

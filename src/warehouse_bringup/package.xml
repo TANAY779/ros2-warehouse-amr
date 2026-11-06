@@ -27,6 +27,8 @@
   <!-- ros2_control_node (hardware:=mock) and the controller spawner -->
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <!-- rviz/map.rviz shows AMCL's particle cloud with nav2_rviz_plugins/ParticleCloud -->
+  <exec_depend>nav2_rviz_plugins</exec_depend>
   <!-- Tools named in the README: teleop, ros2 control, view_frames, rqt_tf_tree -->
   <exec_depend>ros2controlcli</exec_depend>
   <exec_depend>rqt_tf_tree</exec_depend>

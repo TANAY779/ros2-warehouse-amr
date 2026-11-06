@@ -1,0 +1,56 @@
+# AMCL of the warehouse AMR: localization on a saved map (plan F6, section 4.4).
+#
+# nav2_amcl 1.3.13. Every key not listed here keeps the node's built-in default, and for AMCL
+# those equal Nav2's own sample, nav2_bringup/params/nav2_params.yaml (checked key by key). The
+# listed keys either change a default (topics, laser ranges, initial pose) or say a value worth
+# knowing. Tune only if the evaluation (plan F7) fails, one parameter at a time: max_beams
+# first, then the odometry noise alpha1-alpha4 (plan P2-D14).
+#
+# Keys start with /**/ so they match the nodes in any namespace (/robot1/amcl).
+/**/amcl:
+  ros__parameters:
+    # Frames (REP-105). AMCL publishes map -> odom on the robot's tf; the EKF publishes
+    # odom -> base_footprint.
+    global_frame_id: map
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+
+    # Topics. scan is relative, so it resolves in the robot's namespace (/robot1/scan). The map
+    # is absolute: the default `map` would resolve to /robot1/map, where nothing publishes, and
+    # AMCL would wait for a map forever (plan risk R2-6). /map is the one map of the system scope.
+    scan_topic: scan
+    map_topic: /map
+
+    # Models: the motion of a differential drive, and the likelihood field (how far each beam's
+    # end point lies from the nearest occupied cell).
+    robot_model_type: nav2_amcl::DifferentialMotionModel
+    laser_model_type: likelihood_field
+    # -1: use each scan's own range_min and range_max, which robot.yaml sets through the URDF
+    # (0.10 and 20 m). Nav2's sample has 100.0 m, the range of another robot's lidar.
+    laser_min_range: -1.0
+    laser_max_range: -1.0
+    max_beams: 60                  # beams of each scan the filter weighs (of 720)
+    min_particles: 500
+    max_particles: 2000
+
+    # The filter runs when the robot has moved 0.25 m or turned 0.2 rad since the last update,
+    # and publishes amcl_pose after each run. A robot standing still gets no new estimates.
+    update_min_d: 0.25             # m
+    update_min_a: 0.2              # rad
+    tf_broadcast: true             # publish map -> odom
+    # map -> odom is stamped this far ahead of the scan it comes from, so it stays usable
+    # until the next update.
+    transform_tolerance: 1.0       # s
+
+    # Start at a known pose instead of spreading the particles over the whole map (global
+    # localization). localization.launch.py sets initial_pose.x, .y and .yaw to the robot's
+    # spawn pose, so AMCL starts where the robot stands.
+    set_initial_pose: true
+
+# Configures and activates amcl, then watches it through a bond (a heartbeat). If amcl stops
+# answering for bond_timeout, the manager brings it down and waits up to 10 s for it to come back.
+/**/lifecycle_manager_localization:
+  ros__parameters:
+    node_names: [amcl]             # relative: the amcl next to this manager, /robot1/amcl
+    autostart: true                # configure and activate at start-up
+    bond_timeout: 4.0              # s, the default; raise to 8.0 only if bonds time out under load (risk R2-7)

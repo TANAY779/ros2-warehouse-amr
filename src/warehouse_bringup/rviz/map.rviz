@@ -1,0 +1,327 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+      Splitter Ratio: 0.5
+    Tree Height: 600
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    # 1 m cells over the hall (x -1.5 to 28.5 m, y -2 to 18 m).
+    - Alpha: 0.25
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 13.5
+        Y: 8
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 32
+      Reference Frame: <Fixed Frame>
+      Value: true
+    # The one shared map: from slam_toolbox while mapping, from map_server while localizing.
+    # Absolute, and transient local like its publishers, so RViz gets the map whenever it
+    # starts.
+    - Alpha: 1
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: true
+      Enabled: true
+      Name: Map (/map)
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    # The other topic names are relative: RViz runs in the robot namespace (sim.launch.py),
+    # so scan resolves to /robot1/scan.
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: robot_description
+      Enabled: true
+      Name: RobotModel
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    # map -> odom comes from slam_toolbox or AMCL, odom -> base_footprint from the EKF. The
+    # visual-only parts start hidden, as in robot.rviz.
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Frames:
+        emergency_stop_link:
+          Value: false
+        front_bumper_link:
+          Value: false
+        left_wheel_hub_link:
+          Value: false
+        lidar_front_mount_link:
+          Value: false
+        rear_bumper_link:
+          Value: false
+        right_wheel_hub_link:
+          Value: false
+        shell_link:
+          Value: false
+        status_light_link:
+          Value: false
+        tote_tray_link:
+          Value: false
+      Marker Scale: 0.6
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Update Interval: 0
+      Value: true
+    # Best effort, like the bridge publishes it (SENSOR_DATA). Where the scan lies on the
+    # map's walls, the localization is right.
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/LaserScan
+      Color: 230; 30; 30
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Name: LaserScan (scan)
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: scan
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    # AMCL's particles: a wide cloud while it is unsure, a tight one once it has converged.
+    # AMCL publishes them best effort.
+    - Alpha: 1
+      Class: nav2_rviz_plugins/ParticleCloud
+      Color: 0; 180; 0
+      Enabled: true
+      Max Arrow Length: 0.3
+      Min Arrow Length: 0.02
+      Name: ParticleCloud (AMCL)
+      Shape: Arrow (Flat)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: particle_cloud
+      Value: true
+    # AMCL's estimate with its covariance, published after each filter update. Transient
+    # local like AMCL's publisher, so a late RViz still shows the last estimate.
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.1
+      Class: rviz_default_plugins/PoseWithCovariance
+      Color: 255; 140; 0
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Head Length: 0.2
+      Head Radius: 0.12
+      Name: Pose (AMCL, amcl_pose)
+      Shaft Length: 0.6
+      Shaft Radius: 0.04
+      Shape: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: amcl_pose
+      Value: true
+    # Where the robot really is (Gazebo's world pose, frame map), to compare with AMCL by eye.
+    # For tests and evaluation only: the robot's stack never reads it.
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: true
+      Keep: 1
+      Name: Ground truth (ground_truth/odom)
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 1
+        Axes Length: 1
+        Axes Radius: 0.1
+        Color: 220; 40; 220
+        Head Length: 0.2
+        Head Radius: 0.12
+        Shaft Length: 0.6
+        Shaft Radius: 0.04
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: ground_truth/odom
+      Value: true
+    # The EKF's estimate. It drifts from the truth; map -> odom corrects that drift.
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: false
+      Keep: 1
+      Name: Odometry (EKF, odom)
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 1
+        Axes Length: 1
+        Axes Radius: 0.1
+        Color: 40; 120; 255
+        Head Length: 0.2
+        Head Radius: 0.12
+        Shaft Length: 0.6
+        Shaft Radius: 0.04
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: odom
+      Value: false
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+    # "2D Pose Estimate": click and drag on the map to tell AMCL where the robot is. The topic
+    # is relative, so it reaches this robot's AMCL (/robot1/initialpose, plan risk R2-6).
+    - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: initialpose
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  # From above, the whole hall: centred on it, 30 pixels per metre. Scroll to zoom.
+  Views:
+    Current:
+      Angle: 0
+      Class: rviz_default_plugins/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.01
+      Scale: 30
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 13.5
+      Y: 8
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: true
+  Views:
+    collapsed: true
+  Width: 1440
+  X: 60
+  Y: 60

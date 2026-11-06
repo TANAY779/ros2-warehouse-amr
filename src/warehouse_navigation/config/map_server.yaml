@@ -1,0 +1,21 @@
+# map_server of the warehouse: serves a saved map on /map (plan F6, section 4.4).
+#
+# The map server belongs to the system scope: one map for every robot (plan §2.3, D20). The
+# map file (yaml_filename) comes from map_server.launch.py's `map` argument.
+#
+# Keys start with /**/ so they match the nodes wherever the launch file puts them.
+/**/map_server:
+  ros__parameters:
+    # Absolute, like AMCL's map_topic and slam_toolbox's map_name: the one shared map. The
+    # topic is reliable and transient local, so a subscriber that starts later (AMCL, RViz,
+    # map_saver_cli) still receives the map, once.
+    topic_name: /map
+    frame_id: map
+
+# Configures and activates map_server, then watches it through a bond (a heartbeat), like
+# lifecycle_manager_localization in amcl.yaml.
+/**/lifecycle_manager_map:
+  ros__parameters:
+    node_names: [map_server]
+    autostart: true                # configure and activate at start-up
+    bond_timeout: 4.0              # s, the default; raise to 8.0 only if bonds time out under load (risk R2-7)

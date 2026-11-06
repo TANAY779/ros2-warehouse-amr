@@ -19,6 +19,12 @@ Simulate the warehouse AMR: Gazebo (or mock hardware), one robot and RViz.
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse   # the generated warehouse
   ros2 launch warehouse_bringup sim.launch.py headless:=true     # no windows
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock     # no simulator (CI)
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # make a map
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # use it
+
+localization:=slam runs slam_toolbox in the robot's namespace; localization:=amcl runs AMCL
+there and the map server, which serves the map:= file on /map for all robots, in the system
+scope (plan F5, F6). The two never run together: each publishes map -> odom.
 
 The robot spawns at x, y and yaw where they are given. The others come from the robot's
 spawn pose in the location registry (warehouse_layout/generated/locations.yaml) when the
@@ -126,11 +132,32 @@ def resolve_spawn_pose(context):
                     f'yaw {pose["yaw"]:g} rad ({source})')]
 
 
+def check_map(context):
+    """Stop the launch before Gazebo starts if localization:=amcl has no map file to serve."""
+    # Mock hardware: robot.launch.py refuses any localization, before it starts anything.
+    if (LaunchConfiguration('localization').perform(context) != 'amcl'
+            or LaunchConfiguration('hardware').perform(context) != 'gz'):
+        return []
+    path = LaunchConfiguration('map').perform(context)
+    if not os.path.isfile(path):
+        # map_server.launch.py checks this too, but only once Gazebo is running, and an
+        # error raised while gz sim is starting leaves the Gazebo server running.
+        raise FileNotFoundError(
+            f'map:={path} does not exist. Save the warehouse map first '
+            '(warehouse_navigation/maps/README.md), or draw one from the layout: '
+            '`ros2 run warehouse_layout rasterize --out /tmp/layout_map`, then '
+            'map:=/tmp/layout_map.yaml')
+    return []
+
+
 def rviz_setup(context):
     """Return RViz for one robot, in the robot's absolute namespace."""
     # Absolute (/robot1), like robot.launch.py: if this file is included inside another
     # namespace, RViz must stay with the robot at /robot1, not move to /<outer>/robot1.
     namespace = LaunchConfiguration('namespace').perform(context).strip('/')
+    # With localization, the view of the map (fixed frame map); without, of the robot (odom).
+    localization = LaunchConfiguration('localization').perform(context)
+    config = 'robot.rviz' if localization == 'none' else 'map.rviz'
     return [
         PushROSNamespace('/' + namespace),
         # The same remaps as the robot's nodes. The config uses relative topic names (scan,
@@ -139,7 +166,7 @@ def rviz_setup(context):
         SetRemap('/tf_static', 'tf_static'),
         Node(package='rviz2', executable='rviz2',
              arguments=['-d', PathJoinSubstitution(
-                 [FindPackageShare('warehouse_bringup'), 'rviz', 'robot.rviz'])],
+                 [FindPackageShare('warehouse_bringup'), 'rviz', config])],
              output='screen'),
     ]
 
@@ -148,7 +175,9 @@ def generate_launch_description():
     hardware = LaunchConfiguration('hardware')
     namespace = LaunchConfiguration('namespace')
     headless = LaunchConfiguration('headless')
+    localization = LaunchConfiguration('localization')
     bringup_share = FindPackageShare('warehouse_bringup')
+    navigation_share = FindPackageShare('warehouse_navigation')
     spawn_default = ('Default: from the spawn pose of this namespace in the location registry '
                      'when it is for this world, else 0')
 
@@ -178,6 +207,17 @@ def generate_launch_description():
         DeclareLaunchArgument('y', default_value='', description=f'Spawn y [m]. {spawn_default}'),
         DeclareLaunchArgument('yaw', default_value='',
                               description=f'Spawn heading [rad]. {spawn_default}'),
+        # choices: launch refuses any other value when it declares the argument, before
+        # anything starts.
+        DeclareLaunchArgument(
+            'localization', default_value='none', choices=['none', 'slam', 'amcl'],
+            description='none: odometry only; slam: map with slam_toolbox; amcl: localize on '
+                        'the map:= file with AMCL. Needs hardware:=gz (a lidar)'),
+        DeclareLaunchArgument(
+            'map', default_value=PathJoinSubstitution(
+                [navigation_share, 'maps', 'warehouse.yaml']),
+            description='Map for localization:=amcl, a map_server YAML file. Default: the '
+                        'warehouse map saved from slam_toolbox'),
     ]
 
     # World scope: the simulator and its /clock (hardware:=gz only).
@@ -199,7 +239,17 @@ def generate_launch_description():
             'x': LaunchConfiguration('x'),
             'y': LaunchConfiguration('y'),
             'yaw': LaunchConfiguration('yaw'),
+            'localization': localization,
         }.items(),
+    )
+
+    # System scope: the map server, one for all robots, in / (localization:=amcl only). It
+    # comes after the robot, so that robot.launch.py refuses mock hardware before it starts.
+    map_server = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([navigation_share, 'launch', 'map_server.launch.py'])),
+        condition=IfCondition(EqualsSubstitution(localization, 'amcl')),
+        launch_arguments={'map': LaunchConfiguration('map')}.items(),
     )
 
     # RViz runs per robot. The namespace and remaps that rviz_setup pushes apply only inside
@@ -219,9 +269,12 @@ def generate_launch_description():
         # stops the launch before anything runs (an error raised while gz sim is starting
         # leaves the Gazebo server running).
         OpaqueFunction(function=resolve_spawn_pose),
+        # The same for the map file of localization:=amcl.
+        OpaqueFunction(function=check_map),
         # Every node launched below uses one clock: Gazebo's /clock or the wall clock.
         SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
         gazebo,
         robot,
+        map_server,
         rviz,
     ])

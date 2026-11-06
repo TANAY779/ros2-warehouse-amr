@@ -20,6 +20,11 @@ the EKF. With hardware:=gz the controller manager runs inside Gazebo, so this fi
 robot into the running world and starts its bridge; with hardware:=mock it runs
 ros2_control_node instead. Gazebo itself (world scope) is started by sim.launch.py.
 
+localization:=slam adds slam_toolbox, localization:=amcl adds AMCL starting at the spawn pose
+(warehouse_navigation's slam.launch.py and localization.launch.py). AMCL needs a map on /map
+from the system scope: sim.launch.py starts the map server with it, and on its own this file
+needs `ros2 launch warehouse_navigation map_server.launch.py` next to it.
+
 Every node runs inside PushROSNamespace(/<namespace>) with /tf and /tf_static remapped to the
 relative tf and tf_static, so each robot keeps its own TF tree in /<namespace>/tf with
 unprefixed frames (plan D7). Phase 9 includes this file once per robot.
@@ -69,6 +74,14 @@ def include(package, launch_file, arguments=None):
 def launch_setup(context):
     namespace = LaunchConfiguration('namespace').perform(context).strip('/')
     hardware = LaunchConfiguration('hardware').perform(context)
+    localization = LaunchConfiguration('localization').perform(context)
+
+    # Refuse before anything starts: SLAM and AMCL would wait for scans forever.
+    if hardware == 'mock' and localization != 'none':
+        raise ValueError(
+            f'localization:={localization} needs the lidar, and hardware:=mock has none: mock '
+            'hardware simulates the wheels and the IMU only. Use hardware:=gz, or leave '
+            'localization at none.')
 
     # Build the URDF here, so a mistake fails the launch at once. The xacro refuses
     # hardware:=real (reserved for a future SystemInterface) with a clear message.
@@ -126,6 +139,17 @@ def launch_setup(context):
         spawner('imu_sensor_broadcaster', ['~/imu:=imu']),
         include('warehouse_navigation', 'ekf.launch.py'),
     ]
+
+    # Localization, like the EKF, runs after the /tf remaps: it reads this robot's scan and
+    # tf, and publishes map -> odom on this robot's tf (plan F5, F6). The argument holds one
+    # value, so slam_toolbox and AMCL never run together.
+    if localization == 'slam':
+        actions.append(include('warehouse_navigation', 'slam.launch.py'))
+    elif localization == 'amcl':
+        # The spawn pose is a pose in the map frame, because the map frame is the Gazebo world
+        # frame (plan P2-D2): AMCL starts where the robot stands.
+        actions.append(include('warehouse_navigation', 'localization.launch.py', {
+            name: LaunchConfiguration(name) for name in ('x', 'y', 'yaw')}))
     return [GroupAction(actions)]
 
 
@@ -147,5 +171,11 @@ def generate_launch_description():
         DeclareLaunchArgument('y', default_value='0.0', description='Spawn y [m] (gz only)'),
         DeclareLaunchArgument('yaw', default_value='0.0',
                               description='Spawn heading [rad] (gz only)'),
+        # choices: launch refuses any other value when it declares the argument.
+        DeclareLaunchArgument(
+            'localization', default_value='none', choices=['none', 'slam', 'amcl'],
+            description='none: odometry only; slam: map with slam_toolbox; amcl: localize with '
+                        'AMCL on the map on /map (start map_server.launch.py too). Needs '
+                        'hardware:=gz (a lidar)'),
         OpaqueFunction(function=launch_setup),
     ])
