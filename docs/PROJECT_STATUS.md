@@ -16,16 +16,18 @@ TF, ros2_control, QoS or sim time, the
 
 ## At a glance
 
-- **Current phase (as of 2026-11-05):** Phase 2 (warehouse world, mapping, localization) has
-  started on the branch `phase-2-warehouse-world`. Phase 1 (robot description and first drive
+- **Current phase (as of 2026-11-06):** Phase 2 (warehouse world, mapping, localization) is in
+  progress. Its first half, the warehouse generated from one layout file, is merged into `main`
+  (2026-11-06); SLAM mapping and AMCL localization come next, after the owner's review of the
+  world. Phase 1 (robot description and first drive
   in Gazebo) is **done and merged** into `main` (pull request #2, 2026-11-05), including the
   owner's design review: a 360° lidar puck on the deck and a new look. Its
   [learning report](phase-reports/phase-01-robot-description.md) is written. Still open for
   Phase 1: the demo GIF (recorded by the maintainer, report exercise 7) and the `phase-1` tag.
-- **Last updated:** 2026-11-05
+- **Last updated:** 2026-11-06
 - **What runs today** (on `main`): our own robot (revision B, safety yellow and
-  charcoal) drives by keyboard in an empty Gazebo world through ros2_control, inside the
-  `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
+  charcoal) drives by keyboard through ros2_control, in an empty Gazebo world or in the
+  generated 30 x 20 m warehouse (`world:=warehouse`), inside the `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
   without a simulator (the CI check for it is paused with the other checks, ADR-004). Measured in Gazebo: sensor rates
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
   10 m, EKF within 0.09-0.42 %.
@@ -36,7 +38,7 @@ TF, ros2_control, QoS or sim time, the
 |---|---|---|---|
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` not yet created (as of 2026-11-04) |
 | M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending |
-| | 2 | Warehouse world generated from a layout file, mapping, localization | **in progress** (branch `phase-2-warehouse-world`) |
+| | 2 | Warehouse world generated from a layout file, mapping, localization | **in progress**: the generated world is merged (2026-11-06); mapping and localization next |
 | | 3 | Navigation with keep-out and speed zones, safety | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
@@ -117,13 +119,45 @@ has a `wh_shell` function for that).
   window) and bridges `/clock` once per world. It runs `gz sim` directly rather than through a
   shell, so one Ctrl-C (SIGINT) stops it. `spawn_robot.launch.py` spawns a robot from its
   `robot_description` and bridges its `scan` (sensor-data QoS) and `ground_truth/odom` (for
-  tests only). Phase 1 has one world, `empty`. A pytest checks these files without rendering,
+  tests only). Two worlds: `empty` and `warehouse`, which `warehouse_layout` generates (next
+  entry). A pytest checks these files without rendering,
   so CI runs it: the systems every world loads, the bridge file against the robot
   description, and the caster friction after Gazebo's own URDF conversion.
 - **How to use it:** normally through `warehouse_bringup`'s `sim.launch.py`. On its own:
   `ros2 launch warehouse_gazebo gazebo.launch.py headless:=true`.
 - **Where it lives:** `warehouse_gazebo/` (`launch/`, `worlds/empty.sdf`,
-  `config/robot_bridge.yaml`, `test/test_gazebo_config.py`).
+  `worlds/warehouse.sdf` (generated), `config/robot_bridge.yaml`, `test/test_gazebo_config.py`).
+
+### Warehouse layout and the generated world (`warehouse_layout`)
+
+- **What it is:** the warehouse described in one file, `config/layout.yaml` (plan D8), and the
+  pure-Python package that checks it and generates everything else from it. The robot's size
+  comes from `robot.yaml` through `warehouse_description.robot_config`.
+- **What it does:** a 30 x 20 m hall with 4 pick aisles in 2 blocks (8 shelf rows A-H, 414
+  slots), a packing station, 3 charging docks, spawn poses for 3 robots and an open handling
+  floor in the east; plain uniform racks with no totes until Phase 7. It checks the layout
+  against a schema and 9 fit rules (aisle width for the robot, everything the lidar must see
+  solid up to 0.40 m, pick poses clear of shelves, ...), draws a to-scale preview, and
+  generates three committed files: the Gazebo world (`warehouse_gazebo/worlds/warehouse.sdf`,
+  31 static models), the location registry (`generated/locations.yaml`: slots, 36 pick poses,
+  docks, the drop point, spawns) and the expected inventory (`generated/expected_inventory.yaml`:
+  207 totes, seed 2, data for Phase 8). The output is byte-identical run to run, and
+  `generate --check` fails when a committed file is stale. `sim.launch.py world:=warehouse`
+  spawns each robot at its spawn pose from the registry; values given on the command line win.
+  Measured in Gazebo: spawn pose exact, controllers active, scan at 10 Hz with ranges within
+  2 cm of the layout, real-time factor 1.01.
+- **How to use it:**
+
+  ```bash
+  ros2 run warehouse_layout preview --out /tmp/layout.png    # picture + one PASS/FAIL line per rule
+  ros2 run warehouse_layout generate                         # after editing layout.yaml (from ~/warehouse_ws)
+  ros2 run warehouse_layout generate --check                 # exit 1 if a generated file is stale
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse
+  ```
+
+- **Where it lives:** `warehouse_layout/` (`config/layout.yaml`, `warehouse_layout/`,
+  `generated/`, `test/`); its README has the schema, the fit rules and the edit workflow, and
+  `warehouse_bringup`'s README explains where each robot spawns.
 
 ### Odometry EKF (`warehouse_navigation`)
 
@@ -387,6 +421,10 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | Automatic checks paused: CI runs only by hand, `main` needs a pull request but no passing checks, the pre-commit hook is optional, and a plain `colcon build` builds without tests (`colcon.meta` at the workspace root passes `-DBUILD_TESTING=OFF` to every package) | The owner prefers to verify changes by building and running them while the project is under heavy development; the tests stay in the repository for later | adopted (until resumed) | [ADR-004](decisions/ADR-004-ci-pipeline.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-test) |
 | 2026-11-05 | The owner's design review of Phase 1: the 2D lidar becomes a 360° puck standing on the deck near the front edge (scan plane 0.34 m, 720 rays 0.5° apart) instead of a front-left corner scanner in a groove round the body (scan plane 0.20 m, 264°), accepting that a loaded tote blocks much of its rear view. The body is restyled in safety yellow and charcoal from simple, clearly separate parts (skirt, panels, bumpers, deck top, tote tray, emergency stop, status light); the status light's colour is one property, which Phase 9 turns into a per-robot argument | A simpler, familiar sensor layout and a robot that reads as a warehouse AMR. Found while building it: RViz draws all visuals of a link in one colour, so each coloured part is its own link. Open for Phase 3: what the puck cannot see (below 0.34 m, behind a tote), and when a tote is modelled on the robot (no phase does it yet) | adopted | [ADR-005](decisions/ADR-005-custom-tote-amr.md), plan §2.6 (Rev B, Rev C) |
 | 2026-11-05 | The repository root is now the colcon workspace: the repository is cloned as `~/warehouse_ws`, packages moved to `src/`, `.gitignore` keeps `build/`, `install/` and `log/` out; CI, the dev container, README, CONTRIBUTING and the reports follow. History is kept (the move is one rename commit) | The owner wants one repository at the workspace root that VS Code finds directly; GitHub still finds the README, licence and `.github/` at the root | adopted | [ADR-006](decisions/ADR-006-workspace-root-repository.md) |
+| 2026-11-05 | Phase 2 warehouse: a 30 x 20 m hall, 4 pick aisles in 2 blocks (8 shelf rows, 414 slots), an open handling floor in the east; plain uniform racks with no totes and no per-aisle colours until Phase 7 (colours live in the layout's `style:` block) | The owner's choices in the Phase 2 plan review: big enough for 3 robots and aisle traffic in Phase 11, small enough to map quickly; totes arrive with their tags in Phase 7 | adopted | [warehouse_layout](../src/warehouse_layout/README.md) |
+| 2026-11-05 | One `layout.yaml` generates the Gazebo world, the location registry and the expected inventory; the generated files are committed, byte-identical run to run, and `generate --check` catches a stale one; fit rules are tests that read the robot's size from `robot.yaml` (`warehouse_description.robot_config`) | Plan D8: one source of truth, so the world, the waypoints and the inventory can never disagree; a reviewer sees every change to the world in the diff | adopted | [warehouse_layout](../src/warehouse_layout/README.md#generated-files) |
+| 2026-11-05 | The committed SLAM map will come from a scripted survey route; a teleop map is a learning-report exercise | A scripted route is repeatable, so the map can be rebuilt after a layout change | planned (Phase 2) | Plan, Phase 2 |
+| 2026-11-06 | The generated warehouse is merged into `main` before mapping starts | The owner reviews the world first; mapping and localization follow in a later pull request | done | [warehouse_layout](../src/warehouse_layout/README.md) |
 | 2026-11-06 | ML/DL perception research resumed and finished: use cases, synthetic data from Gazebo, training on Colab, CPU inference and ROS 2 integration, each reviewed against the current robot and layout | The owner asked to resume it; the report recommends one class `tote`, D-FINE-N run on the CPU from C++, and a new `UNLABELED` discrepancy | done | [ML report](research/ML_PERCEPTION.md) |
 | 2026-11-06 | Perception design document: the ArUco method (Phases 7-8) and the learned detector (8b) in one design, from the ArUco research, its skeptical review and the ML report, then two more reviews. It proposes 29 changes to the plan (among them: choose the IPPE pose that fits best, never the one nearest the stored dock yaw; a dock tag tilted 20°; M2 re-estimated at about 75-119 h) and asks five questions (O3-O7); the plan is not edited until they are answered | The review found that the plan's rule (pick the IPPE solution nearest the database dock yaw) makes a dock rotated by 5° worse; the owner wants an in-depth reference before Phase 7 | in review | [Perception design](PERCEPTION.md) |
 
@@ -397,7 +435,7 @@ Short list per milestone; details and acceptance criteria are in the plan. All *
 - **M1 Core AMR (`v1.0.0`)**
   - Phase 1's demo GIF: teleop with the RViz sensor view, recorded by the maintainer (steps in
     [exercise 7 of the Phase 1 report](phase-reports/phase-01-robot-description.md#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
-  - Warehouse world generated from a layout file; SLAM mapping and AMCL localization
+  - SLAM mapping of the warehouse from a scripted survey route, and AMCL localization
     (Phase 2).
   - Nav2 navigation with keep-out and speed zones and a collision monitor (Phase 3).
   - Custom interfaces and a behaviour-tree task executor (Phase 4a).
