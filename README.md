@@ -21,7 +21,7 @@ Gazebo Harmonic, one phase at a time, and each phase will end with a recorded de
 | M1 Core AMR (Phases 1-6, v1.0.0) | A custom tote-carrying AMR that fulfils a stream of orders in a generated warehouse, respects keepout and speed zones, docks to recharge on its own and logs KPIs. Operators submit orders and watch the live map in our Flask dashboard | in progress |
 | M2 Perception (Phases 7-8, v2.0.0) | Docking on a detected ArUco tag. An inventory patrol that reads tote tags with the side cameras, keeps inventory state and flags discrepancies in RViz and the dashboard | planned |
 | M3 Fleet (Phases 9-12, v3.0.0) | 3 identical robots, greedy then auction allocation, aisle traffic control, fleet and traffic views in the dashboard, and the final showcase | planned |
-| Optional (Phases 8b, 13) | Learned tote detection trained on Colab (8b, research paused) and mobile manipulation (13, stretch) | planned |
+| Optional (Phases 8b, 13) | Learned tote detection trained on Colab (8b, research done) and mobile manipulation (13, stretch) | planned |
 
 The full phased plan is in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md); design decisions are
 recorded in [docs/decisions/](docs/decisions/).
@@ -37,6 +37,10 @@ recorded in [docs/decisions/](docs/decisions/).
   [Phase 1: the robot](docs/phase-reports/phase-01-robot-description.md).
 - [docs/decisions/](docs/decisions/): architecture decision records (ADRs).
 - [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md): the phased project plan.
+- [docs/PERCEPTION.md](docs/PERCEPTION.md): the perception design (not built yet): ArUco
+  tags for docking and inventory (Phases 7-8) and the optional learned tote detector (8b), with
+  the plan changes it proposes. The learned method's research report is
+  [docs/research/ML_PERCEPTION.md](docs/research/ML_PERCEPTION.md).
 
 ## Quick start
 
@@ -113,7 +117,7 @@ The repository root is the colcon workspace: packages live in `src/`, and colcon
 | `src/warehouse_gazebo/` | Gazebo worlds, robot spawning, ros_gz bridge configuration |
 | `src/warehouse_navigation/` | Localization (the odometry EKF); AMCL and Nav2 in later phases |
 | `src/warehouse_system_tests/` | Launch tests of the running system (mock hardware in CI, Gazebo locally) |
-| `docs/` | Project status, phase reports, project plan and architecture decision records |
+| `docs/` | Project status, phase reports, project plan, perception design and research, architecture decision records |
 | `.devcontainer/` | Development container (default and headless configurations) |
 | `.github/` | CI workflow, Dependabot, PR template |
 
