@@ -330,7 +330,11 @@ controller manager and of each controller. Both Gazebo's controller manager and
 - **`enforce_command_limits: true`** on the controller manager clamps every wheel command to
   the URDF joint limit (22 rad/s). Jazzy's default is `false`, which ignores those limits.
 - **`cmd_vel_timeout: 0.5`.** If no command arrived for 0.5 s, the controller brakes. How
-  "arrived" is judged is concept 11.
+  "arrived" is judged is concept 11. *Note, 2026-11-06:* the value is now 0.15 s, at the
+  owner's request after driving by teleop (each key press kept the robot going for half a
+  second). Every number measured in this report was measured with 0.5 s. With 0.15 s, every
+  `cmd_vel` publisher must publish at 10 Hz or more while the robot should move
+  ([log, 2026-11-06](../PROJECT_STATUS.md#ideas-and-decisions-log)).
 
 **Why industry does it.** Controller parameters are safety-relevant. Hard limits in the
 controller are the last line of defence below the navigation stack's own limits (Phase 3), so
@@ -969,7 +973,7 @@ check; the launch tests themselves wait until checks resume.
 | Odometry, 360° turn in place | < 2 % | wheels 0.00 %, EKF at most 0.05 % (over about 371°) | met |
 | Rates (±10 %) | scan 10, imu 100, odom/wheel 50 Hz | 10.0, 100.0, 49.9-50.0 Hz; the puck's scan again 10.00 Hz | met |
 | Scanner self-hits | 0 | Puck: 0 in 100 scans (72,000 rays) with a box 2 m away, all 2,600 returns on the box; 0 with boxes beside, behind and in front; the launch test's 20 scans see 520 returns on the box. Corner scanner before: 0 in the empty world (100 scans, 52,900 rays), 580 returns on the box per run | met |
-| Teleop stops after `cmd_vel_timeout` | stops | braking starts when the 0.5 s timeout expires; standstill about 0.85 s after the last command (0.5 s plus 0.33 s braking from 0.5 m/s at 1.5 m/s²). Real `teleop_twist_keyboard`, keys fed through a pseudo-terminal: still 0.5 m/s at +0.4 s, braking at +0.5 s, standing by +1.0 s | met |
+| Teleop stops after `cmd_vel_timeout` | stops | measured with `cmd_vel_timeout` 0.5 s (0.15 s since 2026-11-06): braking starts when the 0.5 s timeout expires; standstill about 0.85 s after the last command (0.5 s plus 0.33 s braking from 0.5 m/s at 1.5 m/s²). Real `teleop_twist_keyboard`, keys fed through a pseudo-terminal: still 0.5 m/s at +0.4 s, braking at +0.5 s, standing by +1.0 s | met |
 | xacro `gz` and `mock`, `real` refused, `check_urdf` | as stated | as stated; `real` exits with code 2 and the message | met |
 | Demo GIF: teleop with the RViz sensor view | recorded | not yet | **open** ([exercise 7](#exercise-7-run-the-demo-with-windows-and-record-the-gif)) |
 
@@ -982,9 +986,9 @@ Additional numbers:
   run yet.
 - The design change, measured by hand in headless Gazebo: the scan has 720 rays from -180° to
   +179.5° (360°) at 10.00 Hz in sim time; a 2 s drive at 0.3 m/s, stamped in sim time, moved
-  the robot 0.71 m and it stood still after `cmd_vel_timeout`; Gazebo's converted model still
-  has 33.000000000000007 kg in `base_footprint` and the same friction; 21 of 23 launches stopped
-  cleanly after one SIGINT (the other two hit problem 13).
+  the robot 0.71 m and it stood still after `cmd_vel_timeout` (then 0.5 s); Gazebo's
+  converted model still has 33.000000000000007 kg in `base_footprint` and the same friction;
+  21 of 23 launches stopped cleanly after one SIGINT (the other two hit problem 13).
 - CI job reproduced in `ros:jazzy-ros-base`: green in about 8.5 minutes, of which about 7.8
   minutes is `rosdep install` (Gazebo, ros2_control and RViz are now run dependencies). The
   first real GitHub run happens with the pull request.
@@ -1080,7 +1084,7 @@ with them first.
 ```bash
 colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
 colcon test && colcon test-result --verbose
-grep -hE "Measured rates|Scan check|odometry:|Braking from" \
+grep -hE "Measured rates|Scan check|odometry:|cmd_vel_timeout [0-9]|Braking from" \
   build/warehouse_system_tests/launch_test/*.txt
 ```
 
@@ -1097,8 +1101,8 @@ Summary: 107 tests, 0 errors, 0 failures, 0 skipped
 run, just before it, reported 104. The scan check line below was measured with the test's own
 set-up after the change; the full run is repeated when checks resume.)
 
-and numbers like these (yours will differ in the last digits). Two of the lines begin with the
-name of another test case, such as `test_05_tf_stays_in_the_namespace (...) ... Measured
+and numbers like these (yours will differ in the last digits). Some of the lines begin with
+the name of another test case, such as `test_05_tf_stays_in_the_namespace (...) ... Measured
 rates ...`: the log mixes unittest's progress lines with the tests' own printed output, so a
 printed line can land after a later test's name. Ignore that prefix.
 
@@ -1109,9 +1113,15 @@ wheel odometry: 10.388 m forward, 0.000 m left, truth 10.389 / 0.000 m, error 0.
 fused odometry: 10.402 m forward, 0.015 m left, truth 10.389 / 0.000 m, error 0.19 %
 wheel odometry: turned 371.23 deg, truth 371.22 deg, error 0.00 %
 fused odometry: turned 371.22 deg, truth 371.22 deg, error 0.00 %
+cmd_vel_timeout 0.15 s: 5 odom/wheel samples from +0.05 to +0.15 s after the last command, lowest 0.501 m/s; standing still from +0.79 s
+cmd_vel_timeout 0.15 s: 5 odom/wheel samples from +0.05 to +0.15 s after the last command, lowest 0.500 m/s; standing still from +0.79 s
 Braking from +0.50 m/s: 1.50 m/s^2
 Braking from -0.30 m/s: 1.50 m/s^2
 ```
+
+The two `cmd_vel_timeout` lines (Gazebo, then mock hardware) were added on 2026-11-06 with
+the 0.15 s timeout: after the last command the robot keeps its speed until the timeout, then
+stands still.
 
 Now run the system tests the way CI does:
 
@@ -1191,11 +1201,12 @@ ros2 topic echo /robot1/odom --once --field pose.pose.position
 ```
 
 `stamp: now` fills in the publisher's current time; mock hardware runs on the wall clock, so
-that is right here. The wheel odometry reports `x: 0.708...`, and the EKF nearly the same
-(0.694-0.709 in three runs here: on mock hardware it trails a sudden start and does not always
-catch up completely, problem 7). The wheels' arithmetic: 0.3 m/s for the 1.95 s of commands
-plus the 0.5 s until `cmd_vel_timeout` fires is 0.735 m; speeding up at 0.8 m/s² costs 5.6 cm,
-and braking at 1.5 m/s² rolls 3 cm further. Stop with Ctrl-C in terminal 1.
+that is right here. The wheel odometry reports `x: 0.603...`, and the EKF nearly the same
+(0.592-0.604 in three runs on 2026-11-06: on mock hardware it trails a sudden start and does
+not always catch up completely, problem 7). The wheels' arithmetic: 0.3 m/s for the 1.95 s of
+commands plus the 0.15 s until `cmd_vel_timeout` fires is 0.63 m; speeding up at 0.8 m/s²
+costs 5.6 cm, and braking at 1.5 m/s² rolls 3 cm further: 0.604 m. (Until 2026-11-06 the
+timeout was 0.5 s and the wheels reported 0.708 m.) Stop with Ctrl-C in terminal 1.
 
 ### Exercise 4: Gazebo from the outside
 
@@ -1344,8 +1355,11 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 
 Keep this terminal focused while driving: `i` forward, `,` backward, `j`/`l` turn, `k` stop,
 `q`/`z` faster/slower (it starts at 0.5 m/s and 1.0 rad/s). Hold a key to drive; release it and
-the robot brakes after `cmd_vel_timeout`. Practise once: drive towards the box, turn so the scan
-sweeps over it, back off.
+the robot stands still about 0.5 s later (`cmd_vel_timeout`, 0.15 s, then braking). A held key
+first moves the robot a little and stops it for 0.2-0.3 s until the keyboard's auto-repeat
+starts; that is expected ([warehouse_bringup README](../../src/warehouse_bringup/README.md#things-that-look-wrong-but-are-not)).
+Tap `j` or `l` to turn in small steps of about 4°. Practise once: drive towards the box, turn
+so the scan sweeps over it, back off.
 
 **Arrange the windows** so RViz is large and the teleop terminal and (optionally) the Gazebo
 window sit beside it, all inside one rectangle of the screen.

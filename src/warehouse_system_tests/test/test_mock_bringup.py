@@ -87,28 +87,29 @@ class TestMockBringup(unittest.TestCase):
         Command ``speed`` for 2 s, then stop publishing, so only cmd_vel_timeout stops the robot.
 
         Waits until every collector has messages from after the stop. Returns the stamp of the
-        last command and the time by which the robot must stand still.
+        last command and the windows of ros_helpers.cmd_vel_timeout_windows(): when the robot
+        must still move, and from when it must stand still.
         """
         # Mock hardware runs on the wall clock (use_sim_time false), so the node's clock
         # stamps the commands correctly.
         last_stamp = None
-        for _ in range(40):
+        for _ in range(round(2.0 / rh.COMMAND_PERIOD)):
             command = TwistStamped()
             command.header.stamp = self.node.get_clock().now().to_msg()
             command.header.frame_id = 'base_footprint'
             command.twist.linear.x = speed
             self.cmd_vel.publish(command)
             last_stamp = rh.stamp_to_seconds(command.header.stamp)
-            rh.spin_for(self.node, 0.05)
+            rh.spin_for(self.node, rh.COMMAND_PERIOD)
 
         # No zero command: the controller brakes once the last command is older than the
-        # timeout. 0.3 s of margin for the update and publish periods.
-        stop_by = last_stamp + CMD_VEL_TIMEOUT + abs(speed) / MAX_DECELERATION + 0.3
+        # timeout. The windows are derived from controllers.yaml.
+        moving, stop_by = rh.cmd_vel_timeout_windows(last_stamp, speed)
         # Under load the EKF's messages can arrive later than the wheel odometry's.
         self.assertTrue(rh.spin_until(self.node, lambda: all(
             rh.stamp_to_seconds(c.last.header.stamp) > stop_by + 0.5 for c in collectors),
             20.0))
-        return last_stamp, stop_by
+        return last_stamp, moving, stop_by
 
     def test_01_controllers_become_active(self):
         states = rh.wait_for_active_controllers(
@@ -162,15 +163,28 @@ class TestMockBringup(unittest.TestCase):
             self.node, lambda: wheel.last is not None and fused.last is not None, 10.0))
         start_wheel, start_fused = wheel.last, fused.last
 
-        last_stamp, stop_by = self.drive_then_time_out(FORWARD_SPEED, (wheel, fused))
+        last_stamp, (moving_from, moving_to), stop_by = self.drive_then_time_out(
+            FORWARD_SPEED, (wheel, fused))
 
         def speeds(begin, end):
             return [m.twist.twist.linear.x for m in wheel.messages
                     if begin <= rh.stamp_to_seconds(m.header.stamp) <= end]
 
-        still_moving = speeds(last_stamp + 0.1, last_stamp + 0.3)
+        still_moving = speeds(moving_from, moving_to)
         stopped = speeds(stop_by, stop_by + 10.0)
-        self.assertTrue(still_moving and min(still_moving) > 0.8 * FORWARD_SPEED, still_moving)
+        print(f'cmd_vel_timeout {CMD_VEL_TIMEOUT} s: {len(still_moving)} odom/wheel samples from '
+              f'+{moving_from - last_stamp:.2f} to +{moving_to - last_stamp:.2f} s after the last '
+              f'command, lowest {min(still_moving, default=float("nan")):.3f} m/s; standing still '
+              f'from +{stop_by - last_stamp:.2f} s')
+        # odom/wheel arrives at publish_rate: the window holds all its samples but perhaps one
+        # at an edge (5 at 0.15 s and 50 Hz), and at least 3, or the check would say little.
+        expected = round((moving_to - moving_from) * DRIVE['publish_rate'])
+        self.assertGreaterEqual(len(still_moving), max(3, expected - 1), still_moving)
+        # odom/wheel is a 0.1 s rolling mean, so braking shows in it gradually: 95 % fails a
+        # robot that starts braking more than about 0.06 s before the timeout, such as one
+        # that brakes as soon as one command is missing. The wheels hold the commanded speed
+        # within 1 % in Gazebo and exactly on mock hardware.
+        self.assertGreater(min(still_moving), 0.95 * FORWARD_SPEED, still_moving)
         self.assertTrue(stopped and max(abs(v) for v in stopped) < 0.01, stopped)
 
         travelled_wheel = rh.planar_displacement(start_wheel, wheel.last)[0]
@@ -189,7 +203,7 @@ class TestMockBringup(unittest.TestCase):
         wheel = self.collect(Odometry, f'{NS}/odom/wheel')
         self.assertTrue(rh.spin_until(self.node, lambda: wheel.last is not None, 10.0))
         for speed in (FORWARD_SPEED, REVERSE_SPEED):
-            last_stamp, _ = self.drive_then_time_out(speed, (wheel,))
+            last_stamp, _, _ = self.drive_then_time_out(speed, (wheel,))
             deceleration = rh.braking_deceleration(wheel.messages, speed, after=last_stamp)
             print(f'Braking from {speed:+.2f} m/s: {deceleration:.2f} m/s^2')
             # 20 %: enough for timing jitter on a busy CI runner, far from the 0.8 fallback.

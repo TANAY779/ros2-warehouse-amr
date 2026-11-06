@@ -11,7 +11,7 @@ commands would. Unit-level checks live in the packages themselves (for example
 |---|---|
 | `test/test_mock_bringup.py` | `hardware:=mock` in `/robot1`, no simulator. Runs everywhere, including PR CI |
 | `test/test_gz_bringup.py` | `hardware:=gz`, headless Gazebo in `/robot1`, plus a static box for the scanner to see: the Phase 1 acceptance checks. Needs GPU or EGL rendering; skipped in CI (below) |
-| `warehouse_system_tests/ros_helpers.py` | Shared helpers: read `robot.yaml` and `controllers.yaml`, spin until a condition holds, collect messages (and stop collecting when a test ends), list controllers, read the TF tree, rates, odometry and braking deceleration from message stamps |
+| `warehouse_system_tests/ros_helpers.py` | Shared helpers: read `robot.yaml` and `controllers.yaml`, spin until a condition holds, collect messages (and stop collecting when a test ends), list controllers, read the TF tree, rates, odometry and braking deceleration from message stamps, and the time windows in which `cmd_vel_timeout` must show |
 
 ## What is checked
 
@@ -21,7 +21,7 @@ commands would. Unit-level checks live in the packages themselves (for example
 | `/robot1/cmd_vel` is `TwistStamped` with `diff_drive_controller` as the only subscriber | ✓ | ✓ |
 | Frames without prefix: `odom/wheel` and `odom` are `odom` → `base_footprint`; `imu` is `imu_link`; `scan` is `lidar_front_link`; ground truth is `map` → `base_footprint` | ✓ (no scan) | ✓ |
 | TF tree in `/robot1/tf` equals the Phase 1 tree of plan §2.4 (visual-only parts included); publishers are `robot_state_publisher` and `ekf_filter_node`; nothing arrives on the global `/tf` or `/tf_static` | ✓ | ✓ |
-| A command moves the robot; with no further commands it brakes after `cmd_vel_timeout` (0.5 s) | ✓ | ✓ (stamped in sim time) |
+| A command moves the robot; with no further commands it keeps its speed until `cmd_vel_timeout` (0.15 s) expires, then brakes to a standstill. The time windows come from `controllers.yaml` (`cmd_vel_timeout_windows()`), so the check holds for any timeout | ✓ | ✓ (stamped in sim time) |
 | Braking keeps to the hard limit (1.5 m/s², ±20 %) from forward (+0.5 m/s) and from full reverse (-0.3 m/s) | ✓ | |
 | Rates from header stamps: `scan` 10 Hz, `imu` 100 Hz, `odom/wheel` 50 Hz, ±10 % | | ✓ |
 | The scanner covers its full field of view (`fov_deg`, a full circle) and sees a box 2 m to the left: every return lies on the box (world coordinates via ground truth, within 5σ of the range noise), none inside the robot's outline (self-hits) | | ✓ |
@@ -38,6 +38,10 @@ scan counts and odometry errors; read them in
 limits come from `warehouse_description/config/robot.yaml` and `controllers.yaml`
 (`ros_helpers.description_config()`), so a new robot revision cannot leave a test checking a
 stale value (plan §6). The numbers in the table above are today's values.
+
+**Commands at 20 Hz.** The tests publish `cmd_vel` every 0.05 s (`COMMAND_PERIOD` in
+`ros_helpers.py`), like Nav2's controller server and velocity smoother. `cmd_vel_timeout`
+(0.15 s) must stay well above that period, or the robot would brake between two commands.
 
 **Why a box for the scanner check.** The empty world has nothing in the scan plane, so every
 ray misses. "No return inside the outline" would then pass for a blind, turned or misplaced

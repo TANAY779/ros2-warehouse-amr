@@ -82,6 +82,53 @@ def diff_drive_parameters():
     return controllers['/**/diff_drive_controller']['ros__parameters']
 
 
+def controller_manager_parameters():
+    """Return the controller_manager parameters from controllers.yaml."""
+    controllers = description_config('controllers.yaml')
+    return controllers['/**/controller_manager']['ros__parameters']
+
+
+# The tests command the robot at 20 Hz, like Nav2's controller server and velocity smoother.
+# cmd_vel_timeout must be well above this period, or the robot brakes between two commands.
+COMMAND_PERIOD = 0.05  # s
+
+
+def cmd_vel_timeout_windows(last_command, speed):
+    """
+    Return when odometry must show cmd_vel_timeout at work, once commands stop.
+
+    The robot drove at ``speed`` [m/s, signed] until the command stamped ``last_command`` [s];
+    nothing was published after it. Returns ``((moving_from, moving_to), stopped_by)``:
+
+    - From ``moving_from`` to ``moving_to`` odom/wheel still reports about ``speed``: the
+      controller keeps executing the last command until it is cmd_vel_timeout old. The window
+      starts when the next command would have been due, so a robot that stops as soon as one
+      command is missing fails, and it ends when the timeout expires.
+    - From ``stopped_by`` on the robot stands still: braking starts within one controller
+      update after the timeout and keeps to the deceleration limit; odom/wheel reports the
+      mean of the last velocity_rolling_window_size updates, so it reaches zero one window
+      later; 0.2 s more absorb timing jitter.
+
+    Every time is derived from controllers.yaml, so the checks hold for any cmd_vel_timeout.
+    """
+    drive = diff_drive_parameters()
+    update_period = 1.0 / controller_manager_parameters()['update_rate']  # s
+    timeout = drive['cmd_vel_timeout']  # s
+    limits = drive['linear']['x']
+    # Braking from forward keeps to max_deceleration (<= 0), from reverse to
+    # max_deceleration_reverse (>= 0).
+    if speed >= 0.0:
+        deceleration = -limits['max_deceleration']
+    else:
+        deceleration = limits['max_deceleration_reverse']
+    # 10 updates is diff_drive_controller's default rolling window.
+    mean_window = drive.get('velocity_rolling_window_size', 10) * update_period  # s
+    moving = (last_command + COMMAND_PERIOD, last_command + timeout)
+    stopped_by = (last_command + timeout + update_period + abs(speed) / deceleration
+                  + mean_window + 0.2)
+    return moving, stopped_by
+
+
 def spin_for(node, seconds):
     """Process callbacks for ``seconds`` of wall-clock time."""
     deadline = time.monotonic() + seconds
