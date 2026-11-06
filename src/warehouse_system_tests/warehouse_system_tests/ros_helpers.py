@@ -218,6 +218,14 @@ def stamp_to_seconds(stamp):
     return stamp.sec + stamp.nanosec * 1e-9
 
 
+def duration_text(seconds):
+    """Return a duration as text, for example '8 min 05 s' or '45 s'."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f'{seconds} s'
+    return f'{seconds // 60} min {seconds % 60:02d} s'
+
+
 def rate_from_stamps(messages):
     """Return the message rate in Hz measured with header stamps (sim time in Gazebo)."""
     if len(messages) < 2:

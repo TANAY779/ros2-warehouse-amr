@@ -4,8 +4,18 @@ project(warehouse_system_tests)
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
-# Helpers shared by the launch tests: import warehouse_system_tests.ros_helpers.
+# The Python package: helpers shared by the launch tests (ros_helpers), and the test tools
+# behind the commands below (route_driver, localization_eval, map_timelapse, bags).
 ament_python_install_package(${PROJECT_NAME})
+
+# Test tools, run with `ros2 run warehouse_system_tests <name>`: thin scripts that call the
+# modules above. Simulation only: never part of the robot stack (plan P2-D11).
+install(PROGRAMS
+  scripts/drive_route
+  scripts/evaluate_localization
+  scripts/map_timelapse
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -31,6 +41,12 @@ if(BUILD_TESTING)
   add_launch_test(test/test_gz_bringup.py
     TIMEOUT 600
     RUNNER "${isolated_runner}")
+
+  # The test tools' logic, without a ROS graph: seconds each.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_route_driver test/test_route_driver.py TIMEOUT 60)
+  ament_add_pytest_test(test_localization_eval test/test_localization_eval.py TIMEOUT 120)
+  ament_add_pytest_test(test_map_timelapse test/test_map_timelapse.py TIMEOUT 60)
 endif()
 
 ament_package()

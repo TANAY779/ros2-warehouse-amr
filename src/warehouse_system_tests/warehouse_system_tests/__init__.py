@@ -12,4 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Helpers shared by the warehouse launch tests."""
+"""
+Helpers shared by the warehouse launch tests, and the simulation test tools.
+
+The tools are drive_route, evaluate_localization and map_timelapse (see the README).
+"""

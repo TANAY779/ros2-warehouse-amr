@@ -28,6 +28,8 @@ compile_commands.json
 *.mcap
 *.db3
 rosbag2_*/
+# Recorded runs (ros2 bag record -o bags/<name>), at the workspace root
+/bags/
 *.onnx
 *.pt
 *.pth

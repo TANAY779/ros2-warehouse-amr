@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_system_tests</name>
   <version>0.1.0</version>
-  <description>System-level launch tests of the warehouse AMR: mock-hardware bring-up (CI) and Gazebo acceptance checks (local).</description>
+  <description>System-level launch tests of the warehouse AMR (mock-hardware bring-up in CI, Gazebo acceptance checks locally) and the simulation test tools: drive_route, evaluate_localization and map_timelapse.</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -19,21 +19,34 @@
   <!-- ros_helpers reads robot.yaml and controllers.yaml from it -->
   <exec_depend>warehouse_description</exec_depend>
 
+  <!-- The test tools (drive_route, evaluate_localization, map_timelapse) -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-matplotlib</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <exec_depend>rosbag2_py</exec_depend>
+  <!-- ros2 bag record writes MCAP; reading it needs the MCAP storage plugin -->
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
+  <exec_depend>rosidl_runtime_py</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <!-- The location registry (routes) and the [PASS] / [FAIL] lines (RuleResult) -->
+  <exec_depend>warehouse_layout</exec_depend>
+
   <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_ros</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>domain_coordinator</test_depend>
-  <test_depend>geometry_msgs</test_depend>
   <test_depend>launch</test_depend>
   <test_depend>launch_ros</test_depend>
   <test_depend>launch_testing</test_depend>
   <test_depend>launch_testing_ament_cmake</test_depend>
-  <test_depend>nav_msgs</test_depend>
   <test_depend>python3-pytest</test_depend>
   <!-- test_gz_bringup.py spawns its scan target with ros_gz_sim's create -->
   <test_depend>ros_gz_sim</test_depend>
-  <test_depend>sensor_msgs</test_depend>
   <test_depend>tf2_msgs</test_depend>
   <!-- The system under test -->
   <test_depend>warehouse_bringup</test_depend>
