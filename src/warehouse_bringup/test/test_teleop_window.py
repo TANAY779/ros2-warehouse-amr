@@ -17,7 +17,9 @@ Tests of the teleop window with synthetic Qt events, on Qt's offscreen platform.
 
 They check the thin Qt layer around HoldToDrive: auto-repeat events are ignored, presses and
 releases publish at once, the publish timer repeats and then stops, and losing the keyboard
-(focus, close, Ctrl-C) sends one zero command. No ROS: commands go into a list.
+(focus, close, Ctrl-C) sends one zero command. They also check the coloured line at the top,
+the Command line when nothing is sent, and keys that come the way the desktop sends them. No
+ROS: commands go into a list.
 """
 
 import os
@@ -31,12 +33,18 @@ from python_qt_binding.QtCore import Qt
 from python_qt_binding.QtCore import QTimer
 from python_qt_binding.QtGui import QFocusEvent
 from python_qt_binding.QtGui import QKeyEvent
+from python_qt_binding.QtTest import QTest
 from python_qt_binding.QtWidgets import QApplication
 from python_qt_binding.QtWidgets import QLabel
+from warehouse_bringup.connection import OK
+from warehouse_bringup.connection import PROBLEM
+from warehouse_bringup.connection import Status
 from warehouse_bringup.hold_to_drive import Command
 from warehouse_bringup.hold_to_drive import HoldToDrive
 from warehouse_bringup.hold_to_drive import STOP
 from warehouse_bringup.teleop_window import close_on_signals
+from warehouse_bringup.teleop_window import FOCUS_HINT
+from warehouse_bringup.teleop_window import LEVEL_COLOURS
 from warehouse_bringup.teleop_window import TeleopWindow
 
 PERIOD = 0.05  # s: 20 Hz, the default publish rate
@@ -59,7 +67,11 @@ def sent():
 
 @pytest.fixture
 def window(app, sent):
-    window = TeleopWindow(HoldToDrive(), sent.append, PERIOD, '/robot1/cmd_vel')
+    def publish(command):
+        sent.append(command)
+        return True  # sent
+
+    window = TeleopWindow(HoldToDrive(), publish, PERIOD, '/robot1/cmd_vel')
     window.show()
     yield window
     window.close()
@@ -200,3 +212,61 @@ def test_ctrl_c_closes_the_window_after_one_zero_command(window, sent, driving):
         assert set(sent[:-1]) == {FORWARD}
     else:
         assert sent == []
+
+
+def test_the_top_line_shows_the_status_in_its_colour(app):
+    line = [Status(PROBLEM, 'Nothing listens on /robot1/cmd_vel, so the keys send nothing.')]
+    window = TeleopWindow(HoldToDrive(), lambda command: False, PERIOD, '/robot1/cmd_vel',
+                          lambda: line[0])
+    window.show()
+    try:
+        top = window.findChild(QLabel, 'status')
+        assert top.isVisible()
+        assert top.text() == line[0].text
+        assert LEVEL_COLOURS[PROBLEM] in top.styleSheet()
+        assert 'bold' in top.styleSheet()
+        line[0] = Status(OK, 'Ready: the robot listens on /robot1/cmd_vel.', can_send=True)
+        run_event_loop(0.3)  # the status timer refreshes it
+        assert top.text() == line[0].text
+        assert LEVEL_COLOURS[OK] in top.styleSheet()
+    finally:
+        window.close()
+
+
+def test_no_status_no_top_line(window):
+    assert not window.findChild(QLabel, 'status').isVisible()
+
+
+def test_keys_change_the_command_line_even_when_nothing_is_sent(app):
+    attempts = []
+
+    def publish(command):
+        attempts.append(command)
+        return False  # held back, as TeleopNode does while the top line is not green
+
+    window = TeleopWindow(HoldToDrive(), publish, PERIOD, '/robot1/cmd_vel')
+    window.show()
+    try:
+        press(window, Qt.Key_Up)
+        assert attempts == [FORWARD]
+        assert 'linear.x +0.30 m/s' in window_text(window)
+        assert 'not sent: see the line at the top' in window_text(window)
+        release(window, Qt.Key_Up)
+        run_event_loop(0.3)
+        assert 'idle: publishing nothing' in window_text(window)
+    finally:
+        window.close()
+
+
+def test_keys_from_the_desktop_reach_the_active_window(window, sent):
+    # QTest on the QWindow goes the way a real key does: the platform hands it to the active
+    # window, and Qt passes it to the widget with the keyboard focus (here the window itself).
+    window.activateWindow()
+    run_event_loop(0.1)
+    assert window.hasFocus()
+    run_event_loop(0.3)  # the status timer drops the focus hint
+    assert FOCUS_HINT not in window_text(window)
+    QTest.keyPress(window.windowHandle(), Qt.Key_W)
+    assert sent == [FORWARD]
+    QTest.keyRelease(window.windowHandle(), Qt.Key_W)
+    assert sent == [FORWARD, STOP]
