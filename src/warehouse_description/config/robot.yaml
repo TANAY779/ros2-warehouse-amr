@@ -2,8 +2,8 @@
 #
 # Rule: geometry is generated, tuning is validated. The xacro reads this file with
 # xacro.load_yaml(), so the URDF never repeats a number from here. Tuning files that need the
-# same numbers (controllers.yaml today; Nav2, safety fields and the battery later) are checked
-# against this file by tests (warehouse_description/test/test_description.py).
+# same numbers (controllers.yaml today; Nav2, safety fields and the battery later) must agree
+# with this file: change them together (nothing checks this automatically, ADR-008).
 #
 # Units are SI (metres, kilograms, seconds, radians), except keys ending in _deg (degrees).
 # Heights (clearance, deck_height, height, ...) are measured from the floor. x and y are
@@ -12,8 +12,8 @@
 revision: B
 
 # Outline of the body seen from above. It is also the Nav2 footprint (Phase 3), so every visible
-# part of the robot stays inside it (test_description.py checks every visual; the wheels'
-# collision spheres stick out 3.5 cm, inside the padding).
+# part of the robot stays inside it (the wheels' collision spheres stick out 3.5 cm, inside the
+# padding).
 footprint:
   length: 0.64
   width: 0.48

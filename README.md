@@ -1,6 +1,5 @@
 # Warehouse AMR
 
-[![CI](https://github.com/TANAY779/ros2-warehouse-amr/actions/workflows/ci.yml/badge.svg)](https://github.com/TANAY779/ros2-warehouse-amr/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![ROS 2 Jazzy](https://img.shields.io/badge/ROS_2-Jazzy-22314E)
 ![Gazebo Harmonic](https://img.shields.io/badge/Gazebo-Harmonic-F58113)
@@ -17,7 +16,7 @@ Gazebo Harmonic, one phase at a time, and each phase will end with a recorded de
 
 | Milestone | Planned deliverables | Status |
 |---|---|---|
-| M0 Foundation (Phase 0) | CI green on a one-package repo, lint gates, GUI and headless dev containers, protected `main` | done |
+| M0 Foundation (Phase 0) | CI green on a one-package repo, lint gates, GUI and headless dev containers, protected `main` | done (CI and lint gates removed on 2026-11-07, [ADR-008](docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)) |
 | M1 Core AMR (Phases 1-6, v1.0.0) | A custom tote-carrying AMR that fulfils a stream of orders in a generated warehouse, respects keepout and speed zones, docks to recharge on its own and logs KPIs. Operators submit orders and watch the live map in our Flask dashboard | in progress |
 | M2 Perception (Phases 7-8, v2.0.0) | Docking on a detected ArUco tag. An inventory patrol that reads tote tags with the side cameras, keeps inventory state and flags discrepancies in RViz and the dashboard | planned |
 | M3 Fleet (Phases 9-12, v3.0.0) | 3 identical robots, greedy then auction allocation, aisle traffic control, fleet and traffic views in the dashboard, and the final showcase | planned |
@@ -59,15 +58,16 @@ rosdep install --from-paths src --ignore-src -y
 colcon build --symlink-install
 ```
 
-Tests and CI are paused while the project is under heavy development: `colcon.meta` builds
-every package without tests. See [CONTRIBUTING.md](CONTRIBUTING.md#build-and-test) to run them.
+The project has no automated tests or CI
+([ADR-008](docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)): check a change by
+building it and running the system, as [CONTRIBUTING.md](CONTRIBUTING.md#build-and-run) shows.
 
 First time using rosdep on this machine? Run `sudo rosdep init` once before `rosdep update`.
 
 ### Dev container
 
 Open the repository in VS Code and run **Dev Containers: Reopen in Container**. The image
-has ROS 2 Jazzy, Gazebo Harmonic and all lint tools; the workspace is at `/home/ros/ws`.
+has ROS 2 Jazzy, Gazebo Harmonic, clang-format and gdb; the workspace is at `/home/ros/ws`.
 
 - The default configuration, **ros2-warehouse-amr (ROS 2 Jazzy)**, is for a Linux desktop only:
   it needs `/dev/dri` and an X11 display. On any other host (macOS, Windows, a headless server),
@@ -98,14 +98,10 @@ has ROS 2 Jazzy, Gazebo Harmonic and all lint tools; the workspace is at `/home/
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and the branch, commit and review
-workflow. The pre-commit hook is optional while checks are paused; one-time setup on a
-native install:
-
-```bash
-sudo apt install pre-commit clang-format
-cd ~/warehouse_ws && pre-commit install
-```
+Every change is committed straight to `main` with a
+[Conventional Commits](https://www.conventionalcommits.org/) message: no branches, no pull
+requests. Check it first by building it and running the system. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the details.
 
 ## Repository layout
 
@@ -118,10 +114,9 @@ The repository root is the colcon workspace: packages live in `src/`, and colcon
 | `src/warehouse_description/` | The robot: `robot.yaml`, xacro model, ros2_control and controller configuration |
 | `src/warehouse_gazebo/` | Gazebo worlds, robot spawning, ros_gz bridge configuration |
 | `src/warehouse_navigation/` | Localization (the odometry EKF); AMCL and Nav2 in later phases |
-| `src/warehouse_system_tests/` | Launch tests of the running system (mock hardware in CI, Gazebo locally) |
+| `src/warehouse_system_tests/` | Simulation test tools: `drive_route`, `evaluate_localization`, `map_timelapse` |
 | `docs/` | Project status, phase reports, project plan, perception design and research, architecture decision records |
 | `.devcontainer/` | Development container (default and headless configurations) |
-| `.github/` | CI workflow, Dependabot, PR template |
 
 More packages are added as the phases need them (see the plan).
 

@@ -11,6 +11,12 @@
   checked by hand); the demo GIF is left to the maintainer
   ([exercise 7](#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
 
+> **Note, 2026-11-07:** the tests this report describes (pytest, the launch tests), the lint
+> checks, CI and the pre-commit hooks were removed on 2026-11-07, and there are no branches or
+> pull requests any more ([ADR-008](../decisions/ADR-008-develop-on-main-without-automated-tests.md)).
+> This report stays as the record of Phase 1; exercises that run `colcon test`, pytest, a launch
+> test, pre-commit or CI no longer apply.
+
 This report is written for someone who has read the [Phase 0 report](phase-00-foundation.md)
 and knows basic Linux, Python and C++, but is new to robot descriptions, ros2_control and
 Gazebo. It explains what was built, why each piece exists, what went wrong on the way, and how

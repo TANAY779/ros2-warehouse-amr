@@ -42,8 +42,6 @@ parts that are easy to tell apart.
 | `urdf/ros2_control.xacro` | The `<ros2_control>` block (wheel velocity commands, wheel and IMU states) with the hardware plugin for `gz` or `mock`, and the `gz_ros2_control` system plugin for `gz` |
 | `urdf/gazebo.xacro` | Gazebo-only systems: the ground-truth `OdometryPublisher` |
 | `warehouse_description/robot_config.py` | Python module: `robot_config.load()` returns `robot.yaml` as a frozen dataclass plus the numbers derived from it (half length and width, inscribed and circumscribed radii with and without padding, the scan plane height, the outline as a polygon and as Nav2's `footprint` string). Other packages' Python code uses it instead of copying numbers (the warehouse layout's fit rules now, Nav2 checks later) |
-| `test/test_description.py` | pytest: builds the xacro for every `hardware`, runs `check_urdf`, and checks frames, mass, namespaced gz topics, the lidar (pose, full circle, nothing but its head in the scan plane), that every visual stays inside the outline, one colour per link, and `controllers.yaml` against `robot.yaml` |
-| `test/test_robot_config.py` | pytest: `robot_config` against `robot.yaml` and a made-up robot, and a check that the module repeats no value from `robot.yaml` |
 
 ## Arguments
 
@@ -105,8 +103,7 @@ above the floor; the xacro subtracts the axle height for poses in `base_link`.
 The battery sits low, so the body's centre of mass is 2 cm below the centre of its box; the
 uniform-box inertia about that point is a close approximation. Sensor links and the visual-only
 parts have no mass: on a fixed joint Gazebo merges them into the base anyway, and the body's mass
-already includes them. The test checks the total (35 ± 0.5 kg) and
-the centre of mass (0.14 ± 0.005 m, centred in x and y).
+already includes them.
 
 ## Design notes
 
@@ -117,15 +114,15 @@ the centre of mass (0.14 ± 0.005 m, centred in x and y).
 - **Frictionless casters, unnamed collisions.** The casters only carry load (`mu1`/`mu2` 0 in a
   `<gazebo reference>` block). Gazebo's URDF converter applies such surface settings only to the
   collision names it generates itself (`<link>_collision`): a `<collision name="...">` silently
-  loses them. All collisions are therefore unnamed, and a test guards it; `warehouse_gazebo`'s
-  test also checks the caster friction in Gazebo's converted model (`gz sdf -p`).
+  loses them. All collisions are therefore unnamed; Gazebo's converted model (`gz sdf -p`)
+  shows whether both casters kept friction 0.
 - **A lidar puck on the deck, 0 self-hits.** The lidar stands on the deck 7 cm behind the front
   of the outline, TurtleBot style, and scans one horizontal plane 0.34 m above the floor, all
   round: 720 rays, 0.5° apart. The first ray points straight back (-180°) and the last at
   +179.5°, so the same direction is never measured twice. `gpu_lidar` renders the scene, so it
   sees visuals, not collisions: its own spinning head (radius 4 cm) is hidden by `range_min`
   (10 cm), and every other part stays at least 2 cm below the scan plane (tote tray rim 0.315 m,
-  stop button 0.316 m, status light 0.318 m, the puck's base 0.32 m). A test checks every visual.
+  stop button 0.316 m, status light 0.318 m, the puck's base 0.32 m).
   What the puck cannot see: anything below 0.34 m (pallets, forks, the 0.30 m bodies of other
   robots like this one; only their pucks show) and, once a tote rides on the tray, much
   of the rear. Phase 3 decides how to cover both (plan §2.6, Rev C).
@@ -135,8 +132,7 @@ the centre of mass (0.14 ± 0.005 m, centred in x and y).
   Each coloured part is therefore a link of its own, on a fixed joint and without mass, as in
   Clearpath's Husky (`front_bumper_link`, `top_plate_link`) and TurtleBot 4 (`shell_link`).
   Gazebo keeps each visual's colour anyway and merges the links, so the physics are unchanged.
-  `test_each_link_has_one_colour` guards the rule. RViz's TF display starts with these frames
-  hidden (`warehouse_bringup/rviz/robot.rviz`).
+  RViz's TF display starts with these frames hidden (`warehouse_bringup/rviz/robot.rviz`).
 - **Colours in Gazebo and RViz.** Gazebo's URDF converter (sdformat) multiplies a URDF colour by
   1.25 and clips at 1, so every channel stays at or below 0.8 to keep its hue. Gazebo's ogre2
   renderer then lights in linear space and outputs sRGB, so dark colours look lighter than in
@@ -175,15 +171,19 @@ the centre of mass (0.14 ± 0.005 m, centred in x and y).
 
 Later revisions (rear and low coverage, charging contacts, cameras, ...) are listed in plan §2.6.
 
-## Tests
+## Checking a change
 
-Checks are paused (ADR-004): a plain `colcon build` builds without tests. To run them, build
-with tests first:
+Nothing checks this package automatically
+([ADR-008](../../docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)). After
+changing `robot.yaml`, a xacro file or `controllers.yaml`, rebuild and check by hand:
 
 ```bash
-colcon build --symlink-install --metas /dev/null --cmake-args -DBUILD_TESTING=ON
-colcon test --packages-select warehouse_description && colcon test-result --verbose
+xacro $(ros2 pkg prefix warehouse_description)/share/warehouse_description/urdf/robot.urdf.xacro \
+  namespace:=robot1 hardware:=gz > /tmp/robot.urdf
+check_urdf /tmp/robot.urdf          # prints the link tree
 ```
 
-`test_robot_config.py` needs no test build: after a plain build, run
-`python3 -m pytest src/warehouse_description/test/test_robot_config.py -q`.
+then run the robot and go through
+[Checking the robot by hand](../warehouse_bringup/README.md#checking-the-robot-by-hand). Numbers
+that are in both `robot.yaml` and `controllers.yaml` (wheel radius and separation, the speed and
+acceleration limits, the IMU rate and its noise as covariances σ²) must be changed together.

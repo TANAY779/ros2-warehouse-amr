@@ -17,7 +17,8 @@ Read and write rosbag2 bags with rosbag2_py, without a running ROS graph.
 
 ``ros2 bag record`` writes MCAP files in Jazzy. These helpers turn a bag into
 (topic, message, time) tuples and back: the offline tools (evaluate_localization,
-map_timelapse) read bags this way, and tests write small synthetic bags with known content.
+map_timelapse) read bags this way, and a small synthetic bag with known content can be
+written to try them.
 
 A recorded message carries two times. The bag stores the time the recorder received it (sim
 time when recorded with ``--use-sim-time``, else wall-clock time). The message's header holds

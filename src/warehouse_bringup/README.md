@@ -16,7 +16,6 @@ driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 | `warehouse_bringup/connection.py` | Which clock the teleop window stamps its commands with, and the text and colour of the line at its top. Plain Python, no Qt and no ROS |
 | `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher in `/robot1` by default, the look at the ROS graph that chooses the clock) |
 | `scripts/teleop_window.py` | Starts the window. CMake installs it as `lib/warehouse_bringup/teleop_window`, the file `ros2 run warehouse_bringup teleop_window` runs |
-| `test/` | pytest tests of the logic (`test_hold_to_drive.py`, `test_connection.py`), of the window with synthetic key events on Qt's offscreen platform (`test_teleop_window.py`), and of the node's namespace and clock choice with automatic discovery off (`test_teleop_node.py`); `colcon test` also runs the linters |
 
 ## Running
 
@@ -29,10 +28,10 @@ ros2 launch warehouse_bringup sim.launch.py world:=empty namespace:=robot1
 # The warehouse, generated from warehouse_layout's layout.yaml; robot1 spawns at its spawn pose
 ros2 launch warehouse_bringup sim.launch.py world:=warehouse
 
-# No windows at all (SSH, tests); the scanner still renders through EGL
+# No windows at all (SSH, scripted runs); the scanner still renders through EGL
 ros2 launch warehouse_bringup sim.launch.py headless:=true
 
-# No simulator: mock hardware, wall clock. What CI tests
+# No simulator: mock hardware, wall clock
 ros2 launch warehouse_bringup sim.launch.py hardware:=mock
 
 # Make a map with slam_toolbox, or localize on the saved map with AMCL (Gazebo only)
@@ -89,7 +88,7 @@ a spawn to `layout.yaml` and run `ros2 run warehouse_layout generate`.
 the map frame, and the map frame is the Gazebo world frame, with its origin at robot1's spawn
 pose (warehouse_layout README). The EKF starts `odom` where the robot spawns, so for robot1
 `odom`, `map` and the world are the same frame at the start, and a map made from there lines up
-with the world. A layout fit test keeps robot1 at (0, 0, 0).
+with the world. A layout fit rule (`spawns`) keeps robot1 at (0, 0, 0).
 
 **Why an `OpaqueFunction`.** A launch argument's default can be a substitution
 (`use_sim_time`'s is "is `hardware` equal to `gz`"), but this one needs Python: read a file from
@@ -294,7 +293,7 @@ Parameters, given with `-p name:=value` at the start. The window reads them once
 Write a decimal point (`linear_speed:=1.0`, not `1`): ROS refuses an integer for a
 floating-point parameter.
 
-How the code is split, so that each part can be tested on its own: `hold_to_drive.py` decides
+How the code is split, so that each part can be read and run on its own: `hold_to_drive.py` decides
 which command to send and when, and `connection.py` which clock to use and what the line at
 the top says, both with no Qt and no ROS; `teleop_window.py` turns Qt events into calls to
 them, looks at the ROS graph, and publishes what they return. The window runs in the main

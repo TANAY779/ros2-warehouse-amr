@@ -26,8 +26,8 @@ A layout that does not match the schema raises ``LayoutError`` naming the bad ke
 example ``layout.yaml: hall.wall_height: missing``. Unknown keys are errors too, which
 catches typos. The package README describes the schema.
 
-An object's ``id`` in layout.yaml is its ``name`` here: flake8 does not allow an attribute
-that shadows Python's builtin ``id``.
+An object's ``id`` in layout.yaml is its ``name`` here, so no attribute shadows Python's
+builtin ``id``.
 """
 
 from dataclasses import dataclass

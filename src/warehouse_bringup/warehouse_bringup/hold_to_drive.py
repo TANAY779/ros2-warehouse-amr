@@ -15,7 +15,7 @@
 """
 Hold-to-drive keyboard teleop: which command to send, and when.
 
-Plain Python with no Qt and no ROS, so the tests can drive it with function calls. The window
+Plain Python with no Qt and no ROS, so it can be driven with plain function calls. The window
 (teleop_window.py) turns Qt key events into key names, drops the desktop's auto-repeat events,
 publishes every command these methods return, and calls tick() once per publish period while
 ``publishing`` is true.

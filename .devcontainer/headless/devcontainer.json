@@ -19,8 +19,7 @@
   "containerEnv": {
     "XDG_RUNTIME_DIR": "/tmp/runtime-ros",
     "ROS_DOMAIN_ID": "42",
-    "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
-    "AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS": "1"
+    "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"
   },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "mkdir -p -m 700 /tmp/runtime-ros",
@@ -30,15 +29,12 @@
         "editorconfig.editorconfig",
         "ms-vscode.cpptools",
         "ms-python.python",
-        "ms-python.flake8",
         "redhat.vscode-xml",
         "redhat.vscode-yaml"
       ],
       "settings": {
         "C_Cpp.clang_format_style": "file",
         "C_Cpp.clang_format_path": "/usr/bin/clang-format",
-        "flake8.importStrategy": "fromEnvironment",
-        "flake8.cwd": "${workspaceFolder}",
         "files.insertFinalNewline": true,
         "files.trimTrailingWhitespace": true
       }

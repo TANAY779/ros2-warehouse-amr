@@ -20,13 +20,6 @@
   <!-- robot_config: the robot's dimensions for the fit rules and the preview -->
   <exec_depend>warehouse_description</exec_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
-  <!-- test_generated_files_are_current.py compares the installed world with the layout -->
-  <test_depend>warehouse_gazebo</test_depend>
-
   <export>
     <build_type>ament_python</build_type>
   </export>

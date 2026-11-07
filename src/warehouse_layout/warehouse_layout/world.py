@@ -16,7 +16,7 @@
 The Gazebo world made from the layout: warehouse_gazebo/worlds/<name>.sdf.
 
 ``render(layout)`` returns the SDF text. ``models(layout)`` returns the same world as data,
-one ``WorldModel`` per static model, which the tests read more easily than XML. The world has:
+one ``WorldModel`` per static model, which ``render`` writes as XML. The world has:
 
 - the physics (1 ms steps in real time) and the five systems of empty.sdf. A world that lists
   any <plugin> loads only the systems it lists, so the robot needs every one of them
@@ -29,7 +29,7 @@ one ``WorldModel`` per static model, which the tests read more easily than XML. 
 - visuals for the detail. Gazebo's gpu_lidar renders visuals, not collisions, so the visuals
   are what the lidar sees. Every solid has a visual that fills its footprint from the floor to
   above the scan plane (a shelf's plinth, a fence's kick plate), and below 1.20 m no visual
-  reaches out of the solids (test_world.py checks both);
+  reaches out of the solids;
 - floor paint: thin boxes without collision, each kind in its own layer so that paint on paint
   does not flicker;
 - the expected inventory's totes, only when ``style.show_totes`` is true (bare shelves until

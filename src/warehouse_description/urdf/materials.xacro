@@ -5,7 +5,6 @@
 
   One colour per link. RViz 2 (Jazzy) draws every <visual> of a link in the material of the
   link's first visual, so a part with its own colour is its own link (body.xacro, deck.xacro).
-  test_description.py checks that no link mixes colours.
 
   Gazebo turns a URDF colour into the ambient and diffuse colour of the visual, but its URDF
   converter (sdformat) first multiplies it by 1.25 and clips at 1. A channel above 0.8 therefore

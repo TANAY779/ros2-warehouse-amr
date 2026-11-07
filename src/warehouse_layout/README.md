@@ -6,7 +6,7 @@ it, checks it against a schema, derives everything else from it (bays, slots, ai
 poses, dock poses, keepout and speed zones, floor markings), checks the fit rules that make the
 warehouse work for our robot, and draws a to-scale preview.
 
-Pure Python, no ROS nodes: everything here runs and is tested without a ROS graph. The robot's
+Pure Python, no ROS nodes: everything here runs without a ROS graph. The robot's
 dimensions come from `robot.yaml` through `warehouse_description.robot_config`.
 
 From the same `layout.yaml` it generates three files that are committed to git: the Gazebo
@@ -25,7 +25,6 @@ ros2 run warehouse_layout generate                         # from the workspace 
 ros2 run warehouse_layout generate --check                 # exit 1 if a generated file is stale
 ros2 run warehouse_layout rasterize --out /tmp/layout_map  # the map the lidar would make
 ros2 run warehouse_layout check_map /tmp/layout_map.yaml --overlay /tmp/overlay.png
-python3 -m pytest src/warehouse_layout/test -q             # about 6 s
 ```
 
 `preview` prints one `[PASS]` or `[FAIL]` line per fit rule with what it measured, writes the
@@ -34,7 +33,8 @@ wrong) or 2 if `layout.yaml` does not match the schema. `--layout FILE` draws an
 for example an edited copy; `--robot FILE` uses another `robot.yaml`.
 
 **Edit workflow:** change `config/layout.yaml`, run `preview` and look at the picture, run
-`generate`, then the tests, and commit `layout.yaml` together with the generated files. With
+`generate`, look at the result in Gazebo (`ros2 launch warehouse_bringup sim.launch.py
+world:=warehouse`), and commit `layout.yaml` together with the generated files. With
 `--symlink-install` the installed files are links to the source files, so no rebuild is needed
 between edits (only after a new file appears).
 
@@ -54,17 +54,6 @@ between edits (only after a new file appears).
 | `warehouse_layout/rasterize.py` | What the lidar sees at its scan plane: `surfaces()` (the faces it can see, as points with directions) and `rasterize()` (the map an ideal SLAM run would make); the `rasterize` command |
 | `warehouse_layout/check_map.py` | The `check_map` command: the ICP fit of a map to the faces, the distances, the acceptance criteria and the overlay picture |
 | `generated/locations.yaml`, `generated/expected_inventory.yaml` | Generated and committed: do not edit (the world goes to `warehouse_gazebo/worlds/`) |
-| `test/test_rules.py` | Every rule passes on `layout.yaml`, and every rule fails on a copy with one deliberate mistake (a 1.5 m aisle, a 0.30 m plinth, a pick pose 0.4 m from a shelf, robot1 off the origin, 240 totes, a goal in a keepout, two objects overlapping, ...) with a message that names the object |
-| `test/test_model.py` | What the model derives (slot positions, bay numbers, dock poses, walls round the recess, ...) and the schema errors |
-| `test/test_geometry.py`, `test/test_preview.py` | The geometry helpers; the `preview` command and its exit codes |
-| `test/test_world.py` | The world read back from its SDF: one collision box per solid, every solid seen by the lidar across its footprint up to 0.40 m, nothing sticking out of the solids below 1.20 m (also with totes), bare shelves, thin paint without collision, colours in linear light |
-| `test/test_registry.py`, `test/test_inventory.py` | The registry and the inventory read back with PyYAML: the counts the plan quotes, unique IDs, poses equal to the layout's, tote IDs 20 and up in slot order, every SKU in stock |
-| `test/test_generate.py` | The `generate` command on a temporary copy of the source tree: it writes, `--check` passes, a hand edit or a missing file makes `--check` exit 1 |
-| `test/test_generated_files_are_current.py` | The installed generated files are what the installed layout gives now, byte for byte; generating twice, and in two processes, gives the same bytes |
-| `test/test_occupancy.py` | Map files written and read back: the PGM's row order, map_saver_cli's keys and thresholds, why the free threshold is 0.196, `negate`, RGB images, the origin's yaw, and a clear error for each kind of malformed file |
-| `test/test_rasterize.py` | What the lidar sees: walls only on their inner face, plinths on their faces, the dock bars and plates as free floor, the fence and its open gate, the faces and the occupied cells in agreement, hidden faces left out; the command's files and their bytes |
-| `test/test_check_map.py` | The rasterized layout passes with no offset; the same map shifted 0.15 m, turned 1 degree, given 1.8 % ghost cells or a turned origin is measured as made and fails exactly that criterion; 0.5 % stray cells pass; a map of somewhere else, an empty map and malformed map files give clear errors |
-| `test/test_copyright.py`, `test_flake8.py`, `test_pep257.py` | The lint tests `ros2 pkg create` generates. `test/conftest.py` runs them from the package directory, as `colcon test` does, so they also work when pytest starts from the workspace root |
 
 ## Frame and units
 
@@ -80,8 +69,8 @@ and north walls, y on the west and east walls.
 ## Schema (`schema_version: 1`)
 
 Unknown keys are errors, so a typo cannot be silently ignored. Every `id` must be letters,
-digits and `_`; in Python an object's `id` is its `name` (flake8 forbids attributes that
-shadow the builtin `id`).
+digits and `_`; in Python an object's `id` is its `name`, so no attribute shadows the builtin
+`id`.
 
 | Section | Keys |
 |---|---|
@@ -185,17 +174,15 @@ missing.
 
 **Committed, not built (plan P2-D1).** A layout change then shows up in review as a change to
 the world and the registry, and Gazebo and later nodes load plain files. The cost is that a
-generated file can go stale: every one starts with a do-not-edit notice, `generate --check`
-compares them, and `test_generated_files_are_current.py` regenerates from the installed layout
-and compares with the installed files byte for byte.
+generated file can go stale: every one starts with a do-not-edit notice, and `generate --check`
+compares them with what the layout gives now.
 
 **Same layout, same bytes.** Numbers are printed with a fixed number of decimals (6 in YAML, 4
 in SDF), never with `str()`, whose shortest round-trip text can change with the order of a
 calculation (`0.1 + 0.2` prints `0.30000000000000004`). Lists are written in the layout's
 order, never in a set's (Python orders a set of strings differently in every process). The
 inventory's randomness comes from `random.Random(seed).random()`, the one part of `random`
-whose sequence Python keeps the same across versions. No dates. The freshness test generates
-twice in one process and once in each of two processes with different `PYTHONHASHSEED` values.
+whose sequence Python keeps the same across versions. No dates.
 
 **The world** (`world.py`):
 
@@ -207,7 +194,7 @@ twice in one process and once in each of two processes with different `PYTHONHAS
   checked. One box per shelf segment keeps the physics cheap (P2-D6).
 - The lidar (`gpu_lidar`) sees visuals, not collisions, so every solid has a visual that fills
   its footprint from the floor to above the scan plane: the shelf plinth, the fence's kick plate,
-  the guards. Below 1.20 m no visual reaches out of the solids. `test_world.py` checks both.
+  the guards. Below 1.20 m no visual reaches out of the solids.
 - Racks: a dark plinth up to level 1, open uprights (a square post at the face and one at the
   back, so cameras can look into the bays), orange level boards and a top board, steel end
   guards.
@@ -227,8 +214,8 @@ twice in one process and once in each of two processes with different `PYTHONHAS
 The lidar scans one plane, 0.34 m above the floor (`scan_plane_height`, from `robot.yaml`). It
 sees a solid if that plane cuts it: walls, pilasters, shelf plinths, guards, the counter, dock
 pedestals, the fence's kick plates and the fixtures. It never sees the dock contact bars
-(0.12 m) or base plates (0.01 m). `test_world.py` checks that the Gazebo world agrees, so the
-layout's solids are exactly what the lidar can see. Both tools start from there.
+(0.12 m) or base plates (0.01 m). The Gazebo world is generated to agree (`world.py`, above), so
+the layout's solids are exactly what the lidar can see. Both tools start from there.
 
 ### rasterize: the map an ideal SLAM run would make
 
@@ -364,5 +351,4 @@ it belongs to; but to pair them, you must already know how the map sits on the l
   is readable but does not fit the robot; the rules report every violation at once.
 - **One source of truth.** The robot's dimensions are never typed into this package; they come
   from `robot_config`. The constants in `rules.py` are design margins and limits from the plan
-  (goal margin, aisle width, tag IDs, ...). Tests build the layout for a longer and for a wider
-  robot and see the docked poses move out and the aisle rule object.
+  (goal margin, aisle width, tag IDs, ...).

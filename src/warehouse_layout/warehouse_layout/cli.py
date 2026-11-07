@@ -30,9 +30,9 @@ It writes, in the source tree:
 
 The files are committed to git rather than made at build time (plan P2-D1): a layout change
 then shows up in review as a change to the world and the registry, and Gazebo and later nodes
-load plain files. The price is that they can go stale, so ``--check`` and the test
-test_generated_files_are_current.py compare them with what the layout gives now. A file is
-rewritten only when its text changes, so an unchanged file keeps its date.
+load plain files. The price is that they can go stale, so ``--check`` compares them with what
+the layout gives now. A file is rewritten only when its text changes, so an unchanged file
+keeps its date.
 
 Exit codes: 0 done (or, with --check, every file current); 1 with --check, a file is stale or
 missing; 2 the layout or robot.yaml cannot be read.

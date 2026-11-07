@@ -5,8 +5,8 @@
 # node in any namespace. A plain `controller_manager:` key matches only /controller_manager;
 # in /robot1 the controllers would silently start with default parameters (plan R2).
 #
-# Numbers that describe the robot must match config/robot.yaml; test/test_description.py
-# checks them.
+# Numbers that describe the robot must match config/robot.yaml: change them together (nothing
+# checks this automatically, ADR-008).
 
 /**/controller_manager:
   ros__parameters:
@@ -52,7 +52,7 @@
     # second, too long for small, accurate moves.
     # The rule this creates for every cmd_vel publisher: while the robot should move, publish
     # continuously at 10 Hz or more (Nav2's controller server and velocity smoother publish at
-    # 20 Hz, its docking server at 50 Hz, the system tests at 20 Hz), or the robot brakes
+    # 20 Hz, its docking server at 50 Hz, drive_route at 20 Hz), or the robot brakes
     # between commands. teleop_twist_keyboard publishes once per key event, so a held key
     # stops briefly until the keyboard's auto-repeat starts (README of warehouse_bringup).
     # The age of a command is computed from its header stamp, so every publisher must stamp

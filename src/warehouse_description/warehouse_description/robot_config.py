@@ -19,7 +19,7 @@ config/robot.yaml is the single source of the robot's geometry (plan section 2.6
 xacro reads it for the URDF; Python code reads it through this module: the warehouse layout's
 fit rules now, Nav2 footprints and safety fields later. Derived numbers (radii, the scan
 plane height) are computed here and never typed in by hand, so a change to robot.yaml
-reaches every user. This module contains no number from robot.yaml (a test checks it).
+reaches every user. This module contains no number from robot.yaml.
 
 Usage::
 
@@ -178,8 +178,8 @@ def from_dict(data, source='robot.yaml'):
     """
     Return the RobotConfig for robot.yaml's content (a dict).
 
-    Tests use it to build a robot that differs from the real one in one value. A missing
-    key raises ValueError naming it, for example ``robot.yaml: missing key footprint.width``.
+    load() uses it. A missing key raises ValueError naming it, for example
+    ``robot.yaml: missing key footprint.width``.
     """
     if not isinstance(data, dict):
         raise ValueError(f'{source}: expected a mapping, not {data!r}')

@@ -1,29 +1,25 @@
 # warehouse_system_tests
 
-System-level tests: they launch the real bring-up (`warehouse_bringup/launch/sim.launch.py`)
-and check the running system from the outside with `launch_testing`, like a user with `ros2`
-commands would. Unit-level checks live in the packages themselves (for example
-`warehouse_description/test`).
-
-The package also holds the **test tools** of Phase 2: `drive_route` drives a scripted route,
+The **test tools** of the simulation: `drive_route` drives a scripted route,
 `evaluate_localization` measures AMCL against ground truth from a bag, and `map_timelapse`
 turns a mapping bag into a GIF. They work in simulation only and steer on, or compare with,
 Gazebo's ground truth, so they are never part of the robot stack (plan P2-D11).
+
+The package keeps its name, but it holds no automated tests any more: its launch tests were
+removed on 2026-11-07 with every other test of the project
+([ADR-008](../../docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)). A change
+is checked by running the system and measuring it, with these tools and with the commands in
+[Checking the robot by hand](../warehouse_bringup/README.md#checking-the-robot-by-hand).
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `test/test_mock_bringup.py` | `hardware:=mock` in `/robot1`, no simulator. Runs everywhere, including PR CI |
-| `test/test_gz_bringup.py` | `hardware:=gz`, headless Gazebo in `/robot1`, plus a static box for the scanner to see: the Phase 1 acceptance checks. Needs GPU or EGL rendering; skipped in CI (below) |
-| `warehouse_system_tests/ros_helpers.py` | Shared helpers: read `robot.yaml` and `controllers.yaml`, spin until a condition holds, collect messages (and stop collecting when a test ends), list controllers, read the TF tree, rates, odometry and braking deceleration from message stamps, and the time windows in which `cmd_vel_timeout` must show |
 | `scripts/drive_route`, `warehouse_system_tests/route_driver.py` | The `drive_route` command: the controller (pure Python) and the ROS node around it |
 | `scripts/evaluate_localization`, `warehouse_system_tests/localization_eval.py` | The `evaluate_localization` command |
 | `scripts/map_timelapse`, `warehouse_system_tests/map_timelapse.py` | The `map_timelapse` command |
 | `warehouse_system_tests/bags.py` | Read and write rosbag2 bags (MCAP) with `rosbag2_py`, without a ROS graph |
-| `test/test_route_driver.py` | The driver's geometry and controller on a simulated robot (also one that lags behind its commands), its limits, the dry run. No ROS graph |
-| `test/test_localization_eval.py` | `evaluate_localization` on synthetic MCAP bags with known errors, drift and IMU noise |
-| `test/test_map_timelapse.py` | `map_timelapse` on a small synthetic mapping bag |
+| `warehouse_system_tests/ros_helpers.py` | Shared helpers: the controller's parameters from `controllers.yaml`, spinning until a condition holds, message stamps, durations and angles |
 
 ## Test tools
 
@@ -68,7 +64,7 @@ Commands change by at most half the controller's acceleration limits, so the con
 has to clip them, and stops are planned with half of that braking again: a robot that lags
 behind its commands still stops on the waypoint. On a simulated robot that sees its pose and
 acts 0.1 s late, the driver stays within 1 cm of the route at 1.2 m/s; without the braking
-reserve it left the route by 0.28 m (`test_route_driver.py`).
+reserve it left the route by 0.28 m.
 
 **Exit codes:** 0 the route was driven; 1 it could not be (no ground truth within 30 s, AMCL
 not active within 60 s, the robot more than 0.5 m from the route's start, no progress for 10 s,
@@ -133,92 +129,3 @@ stores only what changed from one frame to the next, so the file stays small: 0.
 frames of a stand-in for the survey mapping run (the rasterized warehouse revealed along the
 route). If a GIF would still be larger than `--max-mb`, the command keeps every second frame,
 then narrows the frames, until it fits; exit code 1 if it cannot.
-
-## What is checked
-
-| Check | Mock | Gazebo |
-|---|---|---|
-| `joint_state_broadcaster`, `diff_drive_controller`, `imu_sensor_broadcaster` active | ✓ | ✓ |
-| `/robot1/cmd_vel` is `TwistStamped` with `diff_drive_controller` as the only subscriber | ✓ | ✓ |
-| Frames without prefix: `odom/wheel` and `odom` are `odom` → `base_footprint`; `imu` is `imu_link`; `scan` is `lidar_front_link`; ground truth is `map` → `base_footprint` | ✓ (no scan) | ✓ |
-| TF tree in `/robot1/tf` equals the Phase 1 tree of plan §2.4 (visual-only parts included); publishers are `robot_state_publisher` and `ekf_filter_node`; nothing arrives on the global `/tf` or `/tf_static` | ✓ | ✓ |
-| A command moves the robot; with no further commands it keeps its speed until `cmd_vel_timeout` (0.15 s) expires, then brakes to a standstill. The time windows come from `controllers.yaml` (`cmd_vel_timeout_windows()`), so the check holds for any timeout | ✓ | ✓ (stamped in sim time) |
-| Braking keeps to the hard limit (1.5 m/s², ±20 %) from forward (+0.5 m/s) and from full reverse (-0.3 m/s) | ✓ | |
-| Rates from header stamps: `scan` 10 Hz, `imu` 100 Hz, `odom/wheel` 50 Hz, ±10 % | | ✓ |
-| The scanner covers its full field of view (`fov_deg`, a full circle) and sees a box 2 m to the left: every return lies on the box (world coordinates via ground truth, within 5σ of the range noise), none inside the robot's outline (self-hits) | | ✓ |
-| Wheel and EKF odometry against ground truth: < 1 % over 10 m straight, < 2 % over a 360° turn | | ✓ |
-| Every process exits with code 0 after one SIGINT | ✓ | ✓ |
-| No process of the test outlives it (orphaned Gazebo server) | | ✓ |
-
-Rates and durations are measured with message stamps, so they hold in sim time even when
-Gazebo runs slower than real time. The tests print the measured rates, braking decelerations,
-scan counts and odometry errors; read them in
-`build/warehouse_system_tests/launch_test/test_test_<name>.py.txt`.
-
-**No robot numbers in the tests.** The outline, rates, scanner samples and noise, timeout and
-limits come from `warehouse_description/config/robot.yaml` and `controllers.yaml`
-(`ros_helpers.description_config()`), so a new robot revision cannot leave a test checking a
-stale value (plan §6). The numbers in the table above are today's values.
-
-**Commands at 20 Hz.** The tests publish `cmd_vel` every 0.05 s (`COMMAND_PERIOD` in
-`ros_helpers.py`), like Nav2's controller server and velocity smoother. `cmd_vel_timeout`
-(0.15 s) must stay well above that period, or the robot would brake between two commands.
-
-**Why a box for the scanner check.** The empty world has nothing in the scan plane, so every
-ray misses. "No return inside the outline" would then pass for a blind, turned or misplaced
-scanner. With a box at a known place, the test also proves the scanner sees, and that its
-returns land where the URDF says the scanner is.
-
-## Running
-
-```bash
-colcon test --packages-select warehouse_system_tests
-colcon test-result --verbose
-# one test file, with its output on the terminal:
-colcon test --packages-select warehouse_system_tests --ctest-args -R test_gz \
-  --event-handlers console_direct+
-```
-
-The mock test takes about 20 s, the Gazebo test about a minute.
-
-The test tools' unit tests need no simulator and no ROS graph, and take a few seconds. While
-checks are paused (ADR-004) a plain `colcon build` builds no tests, so run them with pytest from
-the workspace root, after building and sourcing the workspace:
-
-```bash
-python3 -m pytest src/warehouse_system_tests/test/test_route_driver.py \
-  src/warehouse_system_tests/test/test_localization_eval.py \
-  src/warehouse_system_tests/test/test_map_timelapse.py
-```
-
-**Isolation.** Each test file runs in its own ROS domain: CMake wraps it with
-`run_test_isolated.py` from `ament_cmake_ros`, which picks a free `ROS_DOMAIN_ID` from
-`domain_coordinator` unless `ROS_DOMAIN_ID` is already set. The Gazebo test also gives Gazebo a
-private `GZ_PARTITION`, so a simulation you have open does not interfere. If you set
-`ROS_DOMAIN_ID` yourself, do not run a simulation in the same domain while testing: two
-`/robot1/controller_manager` nodes confuse the spawners.
-
-**Known issue: Gazebo sometimes hangs on shutdown.** About one Gazebo test run in 15 (measured
-in Phase 1) fails only `test_processes_exit_cleanly`, with `Proc gazebo-1 exited with code -9`:
-the Gazebo server ignored SIGINT and SIGTERM, and launch killed it. This is the upstream bug
-[gazebosim/gz-sim#4173](https://github.com/gazebosim/gz-sim/issues/4173) (Harmonic with a
-`gpu_lidar`, headless): gz-common's signal handler stops the Sensors system from inside an
-interrupted gz-transport publish, and the render thread deadlocks. When every other case
-passed, re-run the test.
-
-## The `WAREHOUSE_SKIP_GZ_TESTS` switch
-
-Gazebo's scanner renders the scene, which needs a GPU or EGL. The GitHub runners have neither,
-so CI's build-and-test job sets `WAREHOUSE_SKIP_GZ_TESTS=1` (`.github/workflows/ci.yml`). The
-Gazebo test's `generate_test_description` is decorated with `unittest.skipIf` on that variable,
-so `launch_testing` reports each of its cases as **skipped** with the reason, and
-`colcon test-result` counts them as skipped (not passed, not missing). Locally the variable is
-unset and the Gazebo tests run. CI still checks the Gazebo-side files without rendering:
-`warehouse_gazebo/test/test_gazebo_config.py` (world systems, bridged topics, caster friction)
-does not depend on the switch. To skip the Gazebo launch test on purpose:
-
-```bash
-WAREHOUSE_SKIP_GZ_TESTS=1 colcon test --packages-select warehouse_system_tests
-```
-
-A nightly CI job with headless Gazebo comes in Phase 6 (ADR-004).

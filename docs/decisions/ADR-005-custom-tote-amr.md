@@ -1,6 +1,8 @@
 # ADR-005: Build our own tote AMR on ros2_control, with an EKF for odometry
 
-- **Status:** accepted
+- **Status:** accepted; the tests and CI named below were removed on 2026-11-07
+  ([ADR-008](ADR-008-develop-on-main-without-automated-tests.md)): mock hardware and Gazebo
+  are now checked by running them
 - **Date:** 2026-11-05
 - **Plan reference:** D1, D2, D3 in docs/PROJECT_PLAN.md (§2.6 robot design, Phase 1)
 

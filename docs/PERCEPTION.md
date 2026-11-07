@@ -865,6 +865,11 @@ A tag that is detected but whose slot is not fully observable still counts as po
 
 ### 4.13 Testing and acceptance
 
+> **Note, 2026-11-07:** the project no longer has automated tests, CI or `colcon.meta`
+> ([ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md)), so the commands
+> and the `colcon.meta` step below no longer apply: each level in the table is a check to run
+> by hand, by running the system and measuring.
+
 CI is paused ([ADR-004](decisions/ADR-004-ci-pipeline.md)), so every test below must run locally, and while checks are paused the workspace's `colcon.meta` builds every CMake package with `-DBUILD_TESTING=OFF`: a plain `colcon test` then finds no gtests. Build the perception packages with tests on, then run them:
 
 ```bash

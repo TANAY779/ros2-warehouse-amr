@@ -35,10 +35,6 @@ rosbag2_*/
 *.pth
 datasets/
 
-# Small test fixtures are allowed (keep each under 1 MB)
-!**/test/data/*.mcap
-!**/test/data/*.onnx
-
 # ML track
 .ipynb_checkpoints/
 runs/

@@ -23,16 +23,6 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
-  <test_depend>ament_cmake_clang_format</test_depend>
-  <test_depend>ament_cmake_pytest</test_depend>
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
-  <test_depend>python3-pytest</test_depend>
-  <!-- check_urdf -->
-  <test_depend>urdfdom</test_depend>
-  <!-- urdf_parser_py -->
-  <test_depend>urdfdom_py</test_depend>
-
   <export>
     <build_type>ament_cmake</build_type>
   </export>

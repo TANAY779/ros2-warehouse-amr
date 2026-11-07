@@ -17,7 +17,7 @@
 Start the teleop window: ros2 run warehouse_bringup teleop_window.
 
 CMakeLists.txt installs this file as lib/warehouse_bringup/teleop_window; the code lives in
-the Python package (warehouse_bringup/teleop_window.py), where the tests can import it.
+the Python package (warehouse_bringup/teleop_window.py), next to the logic it uses.
 """
 
 import sys

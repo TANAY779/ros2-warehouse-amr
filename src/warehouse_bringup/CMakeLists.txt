@@ -13,32 +13,13 @@ install(
 ament_python_install_package(${PROJECT_NAME})
 
 # `ros2 run warehouse_bringup teleop_window` runs lib/warehouse_bringup/teleop_window. RENAME
-# drops the .py, which the linters need to find the file. ament's symlink install cannot
-# rename, so with --symlink-install this small file is copied: rebuild after editing it (the
-# code in the package above stays symlinked).
+# drops the .py from the command's name. ament's symlink install cannot rename, so with
+# --symlink-install this small file is copied: rebuild after editing it (the code in the
+# package above stays symlinked).
 install(
   PROGRAMS scripts/teleop_window.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME teleop_window
 )
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # ament_lint_auto skips a missing linter silently; make a missing formatter fail loudly.
-  find_package(ament_cmake_clang_format REQUIRED)
-  # clang-format replaces uncrustify as the C++ formatter (docs/decisions/ADR-003).
-  list(APPEND AMENT_LINT_AUTO_EXCLUDE ament_cmake_uncrustify)
-  ament_lint_auto_find_test_dependencies()
-
-  find_package(ament_cmake_pytest REQUIRED)
-  # The teleop logic, with no Qt and no ROS: the keys, and the clock choice and status line.
-  ament_add_pytest_test(test_hold_to_drive test/test_hold_to_drive.py TIMEOUT 60)
-  ament_add_pytest_test(test_connection test/test_connection.py TIMEOUT 60)
-  # The teleop window with synthetic key events, on Qt's offscreen platform (no screen needed).
-  ament_add_pytest_test(test_teleop_window test/test_teleop_window.py TIMEOUT 60)
-  # The teleop node's namespace and clock choice. The test turns automatic discovery off, so
-  # its commands cannot reach a robot running on this machine.
-  ament_add_pytest_test(test_teleop_node test/test_teleop_node.py TIMEOUT 60)
-endif()
 
 ament_package()

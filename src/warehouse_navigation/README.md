@@ -17,7 +17,6 @@ docking in Phase 5.
 | `launch/localization.launch.py` | Robot scope: `amcl` and `lifecycle_manager_localization`. `x`, `y`, `yaw`: AMCL's initial pose in the map frame (`robot.launch.py localization:=amcl` passes the spawn pose) |
 | `launch/map_server.launch.py` | System scope: `map_server` and `lifecycle_manager_map` in `/`, serving the `map:=` file on `/map` (default `maps/warehouse.yaml`). Refuses a map file that does not exist before it starts anything |
 | `maps/` | The warehouse map AMCL uses, with a README that says how it was made ([maps/README.md](maps/README.md)) |
-| `test/test_nav_params.py` | Checks the parameter files without starting anything ([below](#what-the-test-checks)) |
 
 ## The EKF (plan D3)
 
@@ -162,20 +161,19 @@ the robot stands. Tune only with
 evidence from the evaluation (plan F7), one parameter at a time: `max_beams` first, then the
 odometry noise `alpha1`-`alpha4`.
 
-### What the test checks
+### Mistakes that do not fail at start-up
 
 ROS 2 ignores a parameter that matches no node or no declared name, without a warning, and a
 relative topic name resolves wherever the node runs. Such mistakes do not fail at start-up; the
-robot just never localizes. `test/test_nav_params.py` reads the installed parameter files and
-checks: every key starts with `/**/` (a plain `amcl:` matches only a node in `/`); the scan
-topics are relative and every map topic is `/map`; the frames equal the EKF's; the laser ranges
-agree with `robot.yaml`; slam_toolbox's keys are its sample's keys (no misspelling) with the
-sample's types (`20` where the node expects `20.0` stops the node); the lifecycle managers
-manage the right node; AMCL takes its initial pose from the launch; nothing names ground truth.
-
-```bash
-python3 -m pytest src/warehouse_navigation/test/test_nav_params.py
-```
+robot just never localizes. Nothing checks the files automatically
+([ADR-008](../../docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)), so after
+editing one, check by hand: every key starts with `/**/` (a plain `amcl:` matches only a node in
+`/`); the scan topics are relative and every map topic is `/map`; the frames equal the EKF's;
+the laser ranges agree with `robot.yaml`; slam_toolbox's keys are its sample's keys (no
+misspelling) with the sample's types (`20` where the node expects `20.0` stops the node); the
+lifecycle managers manage the right node; AMCL takes its initial pose from the launch; nothing
+names ground truth. Then run it and read the values back from the running node with
+`ros2 param get`.
 
 ## Running
 

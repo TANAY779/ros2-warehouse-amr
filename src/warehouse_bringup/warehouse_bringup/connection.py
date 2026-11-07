@@ -15,7 +15,7 @@
 """
 Which clock the teleop window stamps its commands with, and the coloured line at its top.
 
-Plain Python with no Qt and no ROS, like hold_to_drive.py, so the tests can call it directly.
+Plain Python with no Qt and no ROS, like hold_to_drive.py, so it can be called on its own.
 TeleopNode (teleop_window.py) looks at the ROS graph five times a second and passes what it
 sees to choose_clock() and connection_status().
 

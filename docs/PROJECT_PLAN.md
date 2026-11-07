@@ -3,6 +3,16 @@
 > **Version 2, 2026-11-03.** Status: **M0 done** (Phase 0 delivered, decisions in [decisions/](decisions/); tag `phase-0` pending until this revision merges). Phase 1 is built and verified (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); Phase 2 is next.
 > Target: ROS 2 **Jazzy**, Gazebo **Harmonic** (gz-sim 8.15 via `ros_gz` 1.0.24), Nav2 1.3.13, BehaviorTree.CPP 4.10, ros2_control 4.48 / ros2_controllers 4.42.1 / `gz_ros2_control` 1.2.20, OpenCV 4.6 (contrib). Versions checked against `/opt/ros/jazzy` on 2026-11-02 and 2026-11-03.
 
+> **Note, 2026-11-07:** the project no longer has automated tests, lint checks or CI, and every
+> commit goes straight to `main`, without branches or pull requests
+> ([ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md)). Every phase's acceptance
+> is checked by running the system and measuring it (the `ros2` command line, `drive_route`,
+> `evaluate_localization`, `check_map` and the other tools), not by automated tests. Where this
+> plan still names pytest, gtest, launch_testing, clang-tidy, coverage, CI, a nightly job,
+> pre-commit, branches or pull requests (most sections do, the phase deliverables included), read
+> it as a check done by hand, or as no longer planned. Phases 0 and 1 were accepted with the
+> tests and CI of the time.
+
 **Changes since v1**
 1. Robot: our own tote-carrying AMR from one `robot.yaml`, built in revisions A-G. The EKF moves into Phase 1 and the cameras into Phase 7. Jazzy wiring fixed: controller and TF remaps, unprefixed frames, namespaced gz topics, `speed_limit`, separate filter servers, a rotation safety circle.
 2. Phases: Phase 4 is split into 4a (interfaces + BT executor), 4b (orders + KPIs) and 4c (operator dashboard v1). Later phases add dashboard slices, and P12 stays lean.
@@ -261,10 +271,9 @@ Backend-for-frontend: the browser speaks only HTTP/JSON and Server-Sent Events t
 
 ```
 ros2-warehouse-amr/  (= ~/warehouse_ws, the colcon workspace)
-├── .github/                  workflows/ci.yml (lint + build & test), dependabot.yml, PR template; sim-smoke.yml [P6]
 ├── .devcontainer/            Dockerfile (osrf/ros:jazzy-desktop-full), devcontainer.json (GUI), headless/, post-create.sh
 ├── docs/                     PROJECT_PLAN.md, PROJECT_STATUS.md, phase-reports/, decisions/ (ADR-000 template, ADR-001..005), architecture.md [P6], media/ [P1+]
-├── .pre-commit-config.yaml  .clang-format  .flake8  .yamllint  .editorconfig  .gitattributes  .gitignore
+├── .clang-format  .editorconfig  .gitattributes  .gitignore
 ├── README.md  CONTRIBUTING.md  LICENSE  dependencies.repos (empty)
 ├── build/ install/ log/      colcon output, git-ignored
 └── src/
@@ -272,7 +281,7 @@ ros2-warehouse-amr/  (= ~/warehouse_ws, the colcon workspace)
     ├── warehouse_description/    robot.yaml → xacro, ros2_control (gz|mock|real), controllers.yaml; robot_config.py [P1, P2]
     ├── warehouse_gazebo/         worlds, models (shelf, dock, tote, tags), bridge config, spawn launch [P1-2]
     ├── warehouse_navigation/     EKF [P1]; AMCL, maps [P2]; Nav2 params + topic map, masks, launch [P3]; docking [P5]
-    ├── warehouse_system_tests/   launch_testing: rates/frames [P1], localization eval [P2], nav scenarios [P3+]
+    ├── warehouse_system_tests/   simulation test tools: drive_route, localization eval, map time-lapse [P2]; nav scenarios [P3+]
     ├── warehouse_layout/         (py) layout.yaml + generators: world, masks, registry, tags, route graph, dock DB [P2+]
     ├── warehouse_interfaces/     msgs/srvs/actions                                            [P4a+]
     ├── warehouse_task_executor/  (cpp) ExecuteTask server + BT.CPP plugin nodes                [P4a]
@@ -354,7 +363,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
 - **Concepts:** URDF/xacro, `robot_state_publisher`, TF, ros2_control (hardware interfaces, controller manager, mock hardware), gz transport vs ROS topics, ros_gz bridge, sensor frames, `use_sim_time`, sensor QoS, EKF basics.
 - **Acceptance:**
   - `ros2 launch warehouse_bringup sim.launch.py world:=empty namespace:=robot1` drives the robot by teleop. After the key is released, the controller starts braking when `cmd_vel_timeout` (0.15 s since 2026-11-06, at the owner's request; 0.5 s when Phase 1 was accepted) expires and is at a standstill about 0.33 s later (teleop's 0.5 m/s at the -1.5 m/s² limit).
-  - `ros2 control list_controllers` shows all controllers active with `hardware:=gz` and with `hardware:=mock` (mock in PR CI).
+  - `ros2 control list_controllers` shows all controllers active with `hardware:=gz` and with `hardware:=mock` (mock in PR CI when Phase 1 was accepted).
   - `ros2 topic info -v /robot1/cmd_vel` shows `TwistStamped` with `diff_drive_controller` as the only subscriber.
   - `view_frames` (remapped to `/robot1/tf`) matches the P1 part of §2.4. `ros2 topic info -v /robot1/tf` lists RSP and the EKF as publishers, and no transform arrives on the global `/tf`. Under `namespace:=robot1`, `odom/wheel` carries `frame_id: odom` and `child_frame_id: base_footprint` (no prefix).
   - Odometry against ground truth: < 1 % over 10 m straight and < 2 % over a 360° turn in place.
@@ -369,7 +378,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - Map with `slam_toolbox` (online async) on `scan`, saved to `warehouse_navigation/maps/`. AMCL config (`scan`, `map_topic: /map`).
   - Bag-based localization evaluation against `ground_truth/odom`, plus the IMU σ check (moved from P1). ADR: `layout.yaml` as the single source (D8).
 - **Concepts:** SDF/gz models, SLAM vs localization, map_server, lifecycle manager, transient_local QoS.
-- **Acceptance:** regenerating the world is deterministic (byte-identical output; CI test). The SLAM map overlays the world within 1 cell. AMCL converges within 2 m of driving from the spawn pose, and the error against ground truth stays under 0.10 m during a 5 min teleop run (reported by the script). IMU σ is within ±20 % of `robot.yaml`. **GIF:** mapping time-lapse.
+- **Acceptance:** regenerating the world is deterministic (byte-identical output; `generate --check`). The SLAM map overlays the world within 1 cell. AMCL converges within 2 m of driving from the spawn pose, and the error against ground truth stays under 0.10 m during a 5 min teleop run (reported by the script). IMU σ is within ±20 % of `robot.yaml`. **GIF:** mapping time-lapse.
 
 ### Phase 3: Navigation with zones and safety (robot Rev C) [L]
 - **Goal:** reliable point-to-point navigation that respects warehouse rules, structured for many robots from the start.
@@ -424,7 +433,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - One Ctrl-C, or two SIGINTs 50 ms apart, exit with code 0 within 2 s with 3 tabs open; the tabs reconnect after a restart.
   - Restarting the dashboard mid-run with 30 or more orders (some queued for over 2 min) restores the Orders table to match `order_manager` within 2 s.
   - A request with a Host outside the allowlist is rejected. The map-transform test places known cells within 0.5 px.
-  - At least 80 % coverage of the non-ROS modules; the launch smoke passes in PR CI. **GIF:** orders streaming in the dashboard.
+  - The launch smoke (the dashboard with the `fake_system` node, a clean exit) passes when run by hand; no coverage gate (ADR-008). **GIF:** orders streaming in the dashboard.
   - Manual spot checks, not gated: with `bind_address` set to the LAN IP, a phone shows the test-mode banner; the robot marker matches RViz2.
 
 ### Phase 5: Battery, autonomous docking, diagnostics (robot Rev D) [L]
@@ -451,7 +460,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - Failure-injection test: a Nav2 goal fails, the task retries N times, then the order is FAILED with a reason.
   - `package.xml` versions → 1.0.0; GitHub Release **v1.0.0**.
 - **Concepts:** release engineering, nightly simulation CI, reproducibility, failure injection.
-- **Acceptance:** a stranger goes from clone to demo, dashboard included, in 3 commands. The nightly job is green 5 runs in a row. **Video:** 2 min narrated M1 demo.
+- **Acceptance:** a stranger goes from clone to demo, dashboard included, in 3 commands. The headless smoke run passes 5 times in a row (run by hand; no nightly CI, ADR-008). **Video:** 2 min narrated M1 demo.
 
 ### Phase 7: Fiducial perception (robot Rev E) [L]
 - **Goal:** the robot docks on a detected tag and reads tote tags with its side cameras.
@@ -506,7 +515,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - `sim_fleet.yaml` spawns N robots under `/robotN` (D7): per-robot `gz_ros2_control` controller manager (`<ros><namespace>` in the plugin tag), a bridge per robot (the shared `robot_bridge.yaml`, expanded in its namespace), and the P3 robot-scope launch per namespace (`GroupAction` / `PushROSNamespace` with the `/tf` remaps) sharing the system scope.
   - Per-robot dock assignment; RTF in the KPIs; other robots appear as obstacles through the scanners (at 0.34 m the puck sees only their pucks, not their 0.30 m bodies: Rev C's answer must cover them). ADR: multi-robot namespacing (D7).
 - **Concepts:** namespaces vs remapping, launch composition, DDS discovery cost, sim performance budgeting.
-- **Acceptance:** 3 robots navigate to random goals simultaneously for 10 min with no TF or topic cross-talk: launch_testing asserts the topic list per namespace, and `gz topic -l` / `gz topic -i` show 3 distinct scan and IMU topics with one publisher each. RTF stays at or above 0.7. Idle cameras have 0 subscribers, and RTF with cameras idle is within 0.05 of RTF with cameras absent. **GIF:** 3 robots in Gazebo and on the dashboard map.
+- **Acceptance:** 3 robots navigate to random goals simultaneously for 10 min with no TF or topic cross-talk: `ros2 topic list` shows the expected topics per namespace, and `gz topic -l` / `gz topic -i` show 3 distinct scan and IMU topics with one publisher each. RTF stays at or above 0.7. Idle cameras have 0 subscribers, and RTF with cameras idle is within 0.05 of RTF with cameras absent. **GIF:** 3 robots in Gazebo and on the dashboard map.
 
 ### Phase 10: Fleet manager v1, greedy allocation [M-L]
 - **Goal:** orders are distributed across the fleet.
@@ -536,7 +545,7 @@ Effort key (focused hours): **S** 8-12, **S-M** 10-16, **M** 12-20, **M-L** 16-2
   - Optional (only if time allows): a `/showcase` kiosk view, a printable `/report` page, a nightly Playwright smoke + axe scan from a venv, Lighthouse accessibility ≥ 95, an RSS-growth check.
   - Final README; `package.xml` versions → 3.0.0; GitHub Release **v3.0.0**.
 - **Concepts:** scenario design, end-to-end reproducibility, presenting engineering results.
-- **Acceptance:** a nightly CI profile of the showcase (shorter run, fewer robots or lower sensor rates, timeouts in sim time) produces the KPI report as an artifact; the full 15 min, 3-robot showcase runs locally for the v3.0.0 report. With the dashboard open for the whole showcase, the browser console shows no errors or CSP violations. **Video:** 3-4 min narrated showcase.
+- **Acceptance:** a short profile of the showcase (shorter run, fewer robots or lower sensor rates, timeouts in sim time), run by hand, produces the KPI report; the full 15 min, 3-robot showcase runs locally for the v3.0.0 report. With the dashboard open for the whole showcase, the browser console shows no errors or CSP violations. **Video:** 3-4 min narrated showcase.
 
 ### Phase 13 (stretch): Mobile manipulation (robot Rev G) [L+]
 - **Goal:** pick a tote at a pick station.

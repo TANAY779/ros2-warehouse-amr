@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_system_tests</name>
   <version>0.1.0</version>
-  <description>System-level launch tests of the warehouse AMR (mock-hardware bring-up in CI, Gazebo acceptance checks locally) and the simulation test tools: drive_route, evaluate_localization and map_timelapse.</description>
+  <description>Simulation test tools of the warehouse AMR: drive_route drives a route of the location registry, evaluate_localization measures AMCL against ground truth from a bag, and map_timelapse turns a mapping bag into a GIF.</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -13,10 +13,10 @@
 
   <!-- Used by the warehouse_system_tests.ros_helpers module -->
   <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>controller_manager_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <!-- ros_helpers reads robot.yaml and controllers.yaml from it -->
+  <!-- ros_helpers reads controllers.yaml from it; evaluate_localization reads robot.yaml
+       through robot_config -->
   <exec_depend>warehouse_description</exec_depend>
 
   <!-- The test tools (drive_route, evaluate_localization, map_timelapse) -->
@@ -33,23 +33,6 @@
   <exec_depend>sensor_msgs</exec_depend>
   <!-- The location registry (routes) and the [PASS] / [FAIL] lines (RuleResult) -->
   <exec_depend>warehouse_layout</exec_depend>
-
-  <test_depend>ament_cmake_clang_format</test_depend>
-  <test_depend>ament_cmake_pytest</test_depend>
-  <test_depend>ament_cmake_ros</test_depend>
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
-  <test_depend>domain_coordinator</test_depend>
-  <test_depend>launch</test_depend>
-  <test_depend>launch_ros</test_depend>
-  <test_depend>launch_testing</test_depend>
-  <test_depend>launch_testing_ament_cmake</test_depend>
-  <test_depend>python3-pytest</test_depend>
-  <!-- test_gz_bringup.py spawns its scan target with ros_gz_sim's create -->
-  <test_depend>ros_gz_sim</test_depend>
-  <test_depend>tf2_msgs</test_depend>
-  <!-- The system under test -->
-  <test_depend>warehouse_bringup</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

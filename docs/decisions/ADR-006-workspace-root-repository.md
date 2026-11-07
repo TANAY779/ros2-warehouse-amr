@@ -1,6 +1,7 @@
 # ADR-006: The repository root is the colcon workspace
 
-- **Status:** accepted (supersedes [ADR-002](ADR-002-repository-layout.md))
+- **Status:** accepted (supersedes [ADR-002](ADR-002-repository-layout.md)); `.github/` and
+  CI were removed on 2026-11-07 ([ADR-008](ADR-008-develop-on-main-without-automated-tests.md))
 - **Date:** 2026-11-05
 - **Plan reference:** D9, §3
 

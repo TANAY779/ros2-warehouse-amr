@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-Helpers shared by the warehouse launch tests, and the simulation test tools.
+The simulation test tools of the warehouse AMR, and their helpers.
 
 The tools are drive_route, evaluate_localization and map_timelapse (see the README).
 """

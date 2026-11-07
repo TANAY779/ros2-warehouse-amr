@@ -104,9 +104,9 @@ TURN_GAIN = 2.0                  # rad/s per rad at the end of a turn in place (
 APPROACH_GAIN = 2.0              # m/s per m left, in the last centimetres before a waypoint
 # Stops are planned with this share of the deceleration the command ramps allow. The robot
 # lags behind its commands (pose and control delays); with room to brake harder than planned,
-# the commands can still catch up and the robot stops on the waypoint. On the lagging robot of
-# test_route_driver.py (pose and commands 0.1 s late) at 1.2 m/s: 0.6 cm off the route, and
-# 28 cm without this margin.
+# the commands can still catch up and the robot stops on the waypoint. On a modelled robot whose
+# pose and commands come 0.1 s late, at 1.2 m/s: 0.6 cm off the route, and 28 cm without this
+# margin.
 BRAKING_MARGIN = 0.5
 FACING = math.radians(2.0)       # a turn in place ends below this heading error
 REALIGN = math.radians(30.0)     # driving with a larger error: stop and turn in place again
@@ -383,7 +383,7 @@ def simulate(waypoints, limits, start=None, max_time=3600.0):
     Drive a route with an ideal robot that does exactly what it is commanded; return a Trace.
 
     The robot starts at ``start`` (default: on the first waypoint, facing +x, as robot1
-    spawns). --dry-run reports the time this takes; the tests check the controller with it.
+    spawns). --dry-run reports the time this takes.
     """
     follower = RouteFollower(waypoints, limits)
     pose = start or Pose2D(waypoints[0][0], waypoints[0][1], 0.0)

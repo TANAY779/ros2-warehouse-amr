@@ -14,7 +14,6 @@
 
   The lidar scans a plane 4 cm above the deck and gpu_lidar renders visuals, so everything here
   stays at least 2 cm below that plane, or the lidar would see the robot itself.
-  test_description.py checks it.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 

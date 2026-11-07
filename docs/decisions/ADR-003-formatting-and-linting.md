@@ -1,6 +1,6 @@
 # ADR-003: Formatting and linting aligned with ROS 2 Jazzy's ament_lint
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-008](ADR-008-develop-on-main-without-automated-tests.md) (2026-11-07)
 - **Date:** 2026-11-02
 - **Plan reference:** D14 (refined: cpplint is kept)
 

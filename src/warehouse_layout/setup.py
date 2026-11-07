@@ -23,7 +23,7 @@ package_name = 'warehouse_layout'
 setup(
     name=package_name,
     version='0.1.0',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(),
     data_files=[
         # The empty marker file that lets ament_index find the package.
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
@@ -42,11 +42,6 @@ setup(
                 'tools: rasterize (the map the lidar would make) and check_map (a saved map '
                 'against the layout).',
     license='Apache-2.0',
-    extras_require={
-        'test': [
-            'pytest',
-        ],
-    },
     entry_points={
         'console_scripts': [
             'check_map = warehouse_layout.check_map:main',

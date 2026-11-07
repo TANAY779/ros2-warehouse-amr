@@ -19,9 +19,9 @@ The lidar scans one plane, ``scan_plane_height`` above the floor (0.34 m on the 
 from robot.yaml). It sees a solid if the plane cuts it, that is if the solid reaches from below
 the plane to above it: walls, pilasters, shelf plinths, guards, the counter, dock pedestals,
 fence kick plates and fixtures. The dock contact bars (0.12 m) and base plates (0.01 m) lie
-below the plane, and the lidar never sees them (plan section 3.4). test_world.py checks that
-the generated world agrees: every solid has a visual that fills its footprint across the
-plane, and no visual reaches out of a solid below 1.20 m.
+below the plane, and the lidar never sees them (plan section 3.4). The generated world agrees
+(world.py): every solid has a visual that fills its footprint across the plane, and no visual
+reaches out of a solid below 1.20 m.
 
 Two views of the same thing:
 

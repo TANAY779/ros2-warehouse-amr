@@ -1,6 +1,6 @@
-# ROS 2 C++ style. Identical to the configuration bundled with ament_clang_format (Jazzy),
-# which `colcon test` uses, so pre-commit and CI format code the same way. Do not edit
-# without reading docs/decisions/ADR-003-formatting-and-linting.md.
+# ROS 2 C++ style: identical to the configuration bundled with ament_clang_format (Jazzy).
+# Editors and `clang-format -i <file>` use it; nothing checks it automatically (ADR-008).
+# Background: docs/decisions/ADR-003-formatting-and-linting.md.
 ---
 Language: Cpp
 BasedOnStyle: Google

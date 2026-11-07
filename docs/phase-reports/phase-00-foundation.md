@@ -6,6 +6,13 @@
 - **Result:** the repository builds and tests in CI, the automatic checks block bad code, the
   dev container gives a reproducible environment, and `main` is protected. No robot code yet.
 
+> **Note, 2026-11-07:** the tests, lint checks, CI, pre-commit hooks and the pull request
+> workflow this report describes were removed on 2026-11-07
+> ([ADR-008](../decisions/ADR-008-develop-on-main-without-automated-tests.md)): every commit
+> now goes straight to `main`, and a change is checked by building and running the system. This
+> report stays as the record of Phase 0; exercises that run `colcon test`, pre-commit, CI or a
+> test file no longer apply.
+
 This report is written for someone who knows basic Linux, Python and C++ but is new to
 professional ROS 2 tooling. It explains what was built, why each piece exists, what went
 wrong on the way, and how to try every piece yourself. Paths are relative to the repository

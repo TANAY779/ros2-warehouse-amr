@@ -1,5 +1,5 @@
-# Development image: ROS 2 Jazzy desktop-full (includes Gazebo Harmonic) plus the
-# formatting/linting tools used by pre-commit and CI.
+# Development image: ROS 2 Jazzy desktop-full (includes Gazebo Harmonic) plus clang-format
+# (the editor's C++ formatter, with the repository's .clang-format) and gdb.
 FROM osrf/ros:jazzy-desktop-full
 
 ARG USERNAME=ros
@@ -22,10 +22,7 @@ RUN if id -u ubuntu >/dev/null 2>&1; then userdel --remove ubuntu; fi \
     clang-format \
     gdb \
     less \
-    pre-commit \
     python3-pip \
-    ros-jazzy-ament-clang-format \
-    ros-jazzy-ament-cmake-clang-format \
     sudo \
   && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/${USERNAME}" \
   && chmod 0440 "/etc/sudoers.d/${USERNAME}" \

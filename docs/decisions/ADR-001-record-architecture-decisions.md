@@ -1,6 +1,7 @@
 # ADR-001: Record architecture decisions
 
-- **Status:** accepted
+- **Status:** accepted; since 2026-11-07 there are no pull requests, so the commit that makes
+  a decision adds its ADR ([ADR-008](ADR-008-develop-on-main-without-automated-tests.md))
 - **Date:** 2026-11-02
 
 ## Context

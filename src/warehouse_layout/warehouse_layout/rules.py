@@ -25,8 +25,8 @@ and are never copied here. With the Rev B robot (0.64 x 0.48 m, padding 0.04 m, 
 - route clearance: half the robot's width + 0.16 m = 0.24 + 0.16 = 0.40 m
 
 The design constants below come from the project plan (section 2.6) and the Phase 2 plan;
-each rule's docstring gives its derivation. test/test_rules.py runs every rule on layout.yaml
-and on copies of it with one deliberate mistake each.
+each rule's docstring gives its derivation. ``preview`` prints a PASS or FAIL line per rule,
+and ``generate`` warns when a rule fails.
 """
 
 from collections import defaultdict

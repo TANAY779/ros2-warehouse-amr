@@ -23,7 +23,6 @@ fixed precision both print 0.3. Layout values have millimetre precision, so 6 de
 
 The YAML files are written as text rather than with ``yaml.safe_dump``: the text is then fixed
 by this code, not by the PyYAML version, and it can carry comments that explain the file.
-The tests read every generated file back with PyYAML.
 """
 
 import re

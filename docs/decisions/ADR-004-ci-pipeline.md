@@ -1,6 +1,7 @@
 # ADR-004: CI runs plain rosdep/colcon steps in the official ROS image
 
-- **Status:** accepted; paused since 2026-11-05 (see the update at the end)
+- **Status:** superseded by [ADR-008](ADR-008-develop-on-main-without-automated-tests.md)
+  (2026-11-07); paused from 2026-11-05 (see the update at the end)
 - **Date:** 2026-11-02
 - **Plan reference:** Phase 0 (replaces the planned `ros-tooling/action-ros-ci`)
 

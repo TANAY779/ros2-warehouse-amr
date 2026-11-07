@@ -42,7 +42,7 @@
     map_update_interval: 2.0       # changed from 5.0 s: the map grows smoothly in RViz and in the time-lapse
     resolution: 0.05               # m per cell
     restamp_tf: false
-    max_laser_range: 20.0          # m, = robot.yaml lidar_front.range_max (test_nav_params.py checks it)
+    max_laser_range: 20.0          # m, = robot.yaml lidar_front.range_max (change them together)
     minimum_time_interval: 0.5     # s
     transform_timeout: 0.2         # s
     tf_buffer_duration: 30.0       # s
