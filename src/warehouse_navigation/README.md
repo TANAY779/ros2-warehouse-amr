@@ -145,6 +145,7 @@ sample's value but to the value built into the node, and several of those differ
 | `minimum_travel_distance`, `minimum_travel_heading` | 0.5 m, 0.5 rad | 0.3 m, 0.3 rad | more graph nodes in the 4-5 m aisles |
 | `loop_search_maximum_distance` | 3.0 m | 2.0 m | 3.0 m reaches into the next aisle, 2.7 m away: a false loop closure would merge two aisles (plan risk R2-1) |
 | `loop_match_minimum_response_fine` | 0.45 | 0.5 | fewer false loop closures between look-alike aisles |
+| `fine_search_angle_offset` | 0.00349 rad (0.2°) | 0.00087 rad (0.05°) | despite the name, the angle step of the fine scan match, which searches ±1° (half of `coarse_angle_resolution`) around the coarse match. With 0.2° steps it cannot correct a heading error under about 0.1° (half a step), and the map took on the EKF's heading drift ([maps/README.md](maps/README.md)) |
 | `min_laser_range` | 0.0 | (removed) | slam_toolbox 2.8.5 never reads it; the shortest range comes from each scan's `range_min` (0.10 m from `robot.yaml`) |
 
 `max_laser_range` stays 20.0 m, the lidar's range in `robot.yaml`. `mode: mapping` stays too:

@@ -35,12 +35,17 @@ What it does, in order:
 
 1. Waits for ground truth, and with it the simulation clock.
 2. With ``--initial-pose-offset DX DY DYAW_DEG``: waits until AMCL reports the lifecycle state
-   active, then publishes one pose on /<namespace>/initialpose: the true pose moved by DX and
+   active, then publishes a pose on /<namespace>/initialpose: the true pose moved by DX and
    DY metres (map frame) and turned by DYAW_DEG degrees, with a covariance of 0.5^2 m^2 and
    0.2^2 rad^2. AMCL then starts from a wrong pose and has to find the right one (plan F7).
+   The pose goes out once the publisher is DISCOVERY_SETTLE (3 s) old, and again until AMCL
+   answers it on amcl_pose (see RouteDriver.set_initial_pose).
 3. With ``--settle SECONDS``: stands still that long in sim time (the IMU noise check of F7
    needs a still robot).
-4. Drives the route: at each waypoint it turns in place to face along the next segment, then
+4. Waits until diff_drive_controller receives what the driver publishes on cmd_vel (see
+   RouteDriver.wait_for_controller): commands published before that are lost or arrive too
+   late. The first command goes out at least DISCOVERY_SETTLE (3 s) after the driver starts.
+5. Drives the route: at each waypoint it turns in place to face along the next segment, then
    drives along it and stops on the next waypoint.
 
 **Commands.** geometry_msgs/TwistStamped on /<namespace>/cmd_vel, 20 times a second while
@@ -61,9 +66,10 @@ controller's acceleration limits per second, so diff_drive_controller never has 
 what the driver commands is what the robot does.
 
 Exit codes: 0 the route was driven (or there was nothing to drive); 1 it could not be (no
-ground truth, AMCL not active, the robot not at the start of the route, no progress for 10 s,
-or the simulation clock stopped); 2 a bad argument; 130 stopped by Ctrl-C. The robot is
-commanded to stop before every exit.
+ground truth, AMCL not active or not answering the initial pose, diff_drive_controller not
+receiving the commands, the robot not at the start of the route, no progress for 10 s, or the
+simulation clock stopped); 2 a bad argument; 130 stopped by Ctrl-C. The robot is commanded to
+stop before every exit.
 """
 
 import argparse
@@ -93,6 +99,7 @@ import yaml
 
 COMMAND_RATE = 20.0              # Hz: commands while driving
 COMMAND_PERIOD = 1.0 / COMMAND_RATE
+CONTROLLER = 'diff_drive_controller'   # subscribes to cmd_vel (controllers.yaml)
 DEFAULT_SPEED = 0.4              # m/s (the mapping run, plan F5)
 DEFAULT_TURN_RATE = 0.5          # rad/s: slow turns keep scan matching easy for SLAM
 ACCELERATION_SHARE = 0.5         # of the controller's acceleration limits (never clipped)
@@ -124,11 +131,20 @@ PROGRESS_ANGLE = 0.05            # rad
 TRUTH_TIMEOUT = 30.0             # for the first ground truth
 CLOCK_TIMEOUT = 10.0             # for the simulation clock to move on
 AMCL_TIMEOUT = 60.0              # for AMCL to become active
+CONTROLLER_TIMEOUT = 30.0        # for diff_drive_controller to receive the commands
+# The first command and the initial pose go out only once their publisher is this old: the
+# subscriber's side of the DDS match can come later than ours (see
+# RouteDriver.wait_for_controller).
+DISCOVERY_SETTLE = 3.0           # s
 STALE_POSE = 0.5                 # s of sim time: older ground truth is not used to steer
 
 # The initial pose for AMCL: how unsure it is (standard deviations), plan F7.
 INITIAL_POSE_SIGMA_XY = 0.5      # m
 INITIAL_POSE_SIGMA_YAW = 0.2     # rad
+# AMCL answers an initial pose at its next scan (10 Hz); without an answer the pose goes out
+# again (see RouteDriver.set_initial_pose).
+INITIAL_POSE_WAIT = 5.0          # s, wall clock
+INITIAL_POSE_TRIES = 3
 
 
 class DriveError(RuntimeError):
@@ -499,6 +515,7 @@ class RouteDriver(Node):
         self.create_subscription(Odometry, 'ground_truth/odom', self._on_truth,
                                  qos_profile_sensor_data)
         self.cmd_vel = self.create_publisher(TwistStamped, 'cmd_vel', 10)
+        self._cmd_vel_created = time.monotonic()
         self.cmd_vel_timeout = cmd_vel_timeout    # s, for the log
         self.follower = None
         self._driven = 0.0           # metres, for the summary
@@ -566,6 +583,44 @@ class RouteDriver(Node):
         if waypoints:
             self.drive(name, waypoints, limits)
 
+    def wait_for_controller(self):
+        """
+        Wait until diff_drive_controller receives what this node publishes on cmd_vel.
+
+        DDS delivers a message only between a publisher and a subscription that discovery has
+        matched, a fraction of a second after the publisher is created, and it matches the two
+        ends separately. Until the subscription's end knows the publisher, it drops what
+        arrives; cmd_vel is reliable, so the publisher sends the dropped commands again later,
+        but by then they are older than cmd_vel_timeout and the controller ignores them. In one
+        mapping run the first four commands reached the controller and a bag recorder 0.3 to
+        0.9 s late, all at the same moment, as such a resend does, and the robot started late,
+        behind the driver's speed ramps.
+
+        The publisher's end can be checked: get_subscription_count() counts the subscriptions
+        it is matched with. One is not enough proof, because a bag recorder may subscribe to
+        cmd_vel too and be matched first, so this waits until ROS lists the controller's
+        subscription and the publisher is matched with every subscription listed. The
+        subscription's end cannot be checked from here, so this then waits, still processing
+        callbacks, until the publisher is DISCOVERY_SETTLE seconds old.
+        """
+        topic = self.cmd_vel.topic_name
+        started = time.monotonic()
+
+        def matched():
+            listed = self.get_subscriptions_info_by_topic(topic)
+            return (any(endpoint.node_name == CONTROLLER for endpoint in listed)
+                    and self.cmd_vel.get_subscription_count() >= len(listed))
+
+        if not rh.spin_until(self, matched, CONTROLLER_TIMEOUT):
+            raise DriveError(
+                f'{CONTROLLER} does not receive {topic} after {CONTROLLER_TIMEOUT:g} s '
+                f'({self.cmd_vel.get_subscription_count()} of {self.count_subscribers(topic)} '
+                'subscriptions matched): is the controller active in this namespace?')
+        rh.spin_for(self, DISCOVERY_SETTLE - (time.monotonic() - self._cmd_vel_created))
+        self.get_logger().info(
+            f'{CONTROLLER} receives {topic} ({self.cmd_vel.get_subscription_count()} '
+            f'subscriptions matched; waited {time.monotonic() - started:.2f} s)')
+
     def wait_for_amcl(self):
         """Wait until AMCL's lifecycle state is active (it ignores initial poses before)."""
         client = self.create_client(GetState, 'amcl/get_state')
@@ -587,51 +642,61 @@ class RouteDriver(Node):
                          'with localization:=amcl')
 
     def set_initial_pose(self, offset):
-        """Give AMCL the true pose moved by ``offset`` (dx, dy, dyaw_deg), once it is active."""
+        """
+        Give AMCL the true pose moved by ``offset`` (dx, dy, dyaw_deg), once it is active.
+
+        AMCL subscribes to initialpose best effort (the system default QoS), so DDS never sends
+        a lost pose again: a pose that reaches AMCL before its end of the match knows this
+        publisher is dropped for good (wait_for_controller explains the match). So the pose
+        goes out only once the publisher is DISCOVERY_SETTLE seconds old, and AMCL's answer
+        proves that it arrived: AMCL publishes amcl_pose after every initial pose, and a robot
+        standing still gives it no other reason to. Without an answer the pose goes out again,
+        up to INITIAL_POSE_TRIES times.
+        """
         self.wait_for_amcl()
         publisher = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
-        if not rh.spin_until(self, lambda: publisher.get_subscription_count() > 0, 10.0):
-            raise DriveError(f'nothing subscribes to {publisher.topic_name}')
-        truth = self.truth
-        pose = perturbed_pose(pose_of(truth), *offset)
-        message = PoseWithCovarianceStamped()
-        # The stamp of the true pose it was made from: AMCL adds the odometry since then.
-        message.header.stamp = truth.header.stamp
-        message.header.frame_id = 'map'      # AMCL ignores an initial pose in another frame
-        message.pose.pose.position.x = pose.x
-        message.pose.pose.position.y = pose.y
-        message.pose.pose.orientation.z = math.sin(pose.yaw / 2.0)
-        message.pose.pose.orientation.w = math.cos(pose.yaw / 2.0)
-        message.pose.covariance = initial_pose_covariance()
-
-        # Listen for AMCL's answer before publishing, so it cannot be missed. Best effort
-        # matches any publisher QoS.
+        created = time.monotonic()
+        # Listen for AMCL's answers from now on, so the subscription is matched in time too.
+        # Best effort matches any publisher QoS.
         estimates = []
         subscription = self.create_subscription(
             PoseWithCovarianceStamped, 'amcl_pose', estimates.append,
             QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
-        publisher.publish(message)
-        self.get_logger().info(
-            f'initial pose for AMCL on {publisher.topic_name}: {pose_text(pose)}, the true pose '
-            f'{pose_text(pose_of(truth))} moved by ({offset[0]:+g}, {offset[1]:+g}) m and '
-            f'turned by {offset[2]:+g} deg')
-        stamp = rh.stamp_to_seconds(message.header.stamp)
+        if not rh.spin_until(self, lambda: publisher.get_subscription_count() > 0, 10.0):
+            raise DriveError(f'nothing subscribes to {publisher.topic_name}')
+        rh.spin_for(self, DISCOVERY_SETTLE - (time.monotonic() - created))
 
-        def answered():
-            return any(rh.stamp_to_seconds(m.header.stamp) >= stamp for m in estimates)
-
-        if rh.spin_until(self, answered, 5.0):
-            estimate = estimates[-1].pose.pose
-            amcl = Pose2D(estimate.position.x, estimate.position.y,
-                          rh.yaw_of(estimate.orientation))
-            true = pose_of(self.truth)
+        for attempt in range(1, INITIAL_POSE_TRIES + 1):
+            truth = self.truth
+            pose = perturbed_pose(pose_of(truth), *offset)
+            message = PoseWithCovarianceStamped()
+            # The stamp of the true pose it was made from: AMCL adds the odometry since then.
+            message.header.stamp = truth.header.stamp
+            message.header.frame_id = 'map'      # AMCL ignores an initial pose in another frame
+            message.pose.pose.position.x = pose.x
+            message.pose.pose.position.y = pose.y
+            message.pose.pose.orientation.z = math.sin(pose.yaw / 2.0)
+            message.pose.pose.orientation.w = math.cos(pose.yaw / 2.0)
+            message.pose.covariance = initial_pose_covariance()
+            estimates.clear()
+            publisher.publish(message)
             self.get_logger().info(
-                f'AMCL took it: it reports {pose_text(amcl)}, '
-                f'{math.hypot(amcl.x - true.x, amcl.y - true.y):.2f} m and '
-                f'{abs(math.degrees(rh.wrap_angle(amcl.yaw - true.yaw))):.1f} deg from the truth')
+                f'initial pose for AMCL on {publisher.topic_name} (try {attempt} of '
+                f'{INITIAL_POSE_TRIES}): {pose_text(pose)}, the true pose '
+                f'{pose_text(pose_of(truth))} moved by ({offset[0]:+g}, {offset[1]:+g}) m and '
+                f'turned by {offset[2]:+g} deg')
+            if rh.spin_until(self, lambda: bool(estimates), INITIAL_POSE_WAIT):
+                break
         else:
-            self.get_logger().warning('AMCL published no pose within 5 s of the initial pose: '
-                                      'is the lidar running?')
+            raise DriveError(f'AMCL did not answer the initial pose ({INITIAL_POSE_TRIES} tries, '
+                             f'{INITIAL_POSE_WAIT:g} s each): is the lidar running?')
+        estimate = estimates[0].pose.pose
+        amcl = Pose2D(estimate.position.x, estimate.position.y, rh.yaw_of(estimate.orientation))
+        true = pose_of(self.truth)
+        self.get_logger().info(
+            f'AMCL took it: it reports {pose_text(amcl)}, '
+            f'{math.hypot(amcl.x - true.x, amcl.y - true.y):.2f} m and '
+            f'{abs(math.degrees(rh.wrap_angle(amcl.yaw - true.yaw))):.1f} deg from the truth')
         self.destroy_subscription(subscription)
         self.destroy_publisher(publisher)
 
@@ -646,6 +711,7 @@ class RouteDriver(Node):
                 f'the robot is {away:.2f} m from the start of route {name} '
                 f'({waypoints[0][0]:g}, {waypoints[0][1]:g}); it must start within '
                 f'{START_TOLERANCE:g} m of it: restart the simulation, or move the robot there')
+        self.wait_for_controller()
         self.follower = RouteFollower(waypoints, limits)
         self._previous = start
         self.get_logger().info(

@@ -79,7 +79,15 @@
     # Scan matcher parameters
     distance_variance_penalty: 0.5
     angle_variance_penalty: 1.0
-    fine_search_angle_offset: 0.00349
+    # changed from 0.00349 rad (0.2 deg). Despite its name this is the fine search's angle
+    # step, not its range: the fine search tries angles within +-coarse_angle_resolution / 2
+    # (+-1 deg) of the coarse match, this far apart (Karto's ScanMatcher::MatchScan). With
+    # 0.2 deg steps the matcher left small heading errors uncorrected: in a survey run
+    # map -> odom kept yaw 0 for the first 130 s, and the whole map took on the EKF's early
+    # heading drift (0.25 deg; check_map allows 0.2). With 0.05 deg steps (41 angles instead
+    # of 11) the first heading correction came 10 to 12 s into each survey run
+    # (maps/README.md).
+    fine_search_angle_offset: 0.00087
     coarse_search_angle_offset: 0.349
     coarse_angle_resolution: 0.0349
     minimum_angle_penalty: 0.9

@@ -29,7 +29,8 @@ Run them in a second terminal while the simulation runs (`world:=warehouse`). Ba
 ### drive_route
 
 ```bash
-ros2 run warehouse_system_tests drive_route --route survey --speed 0.4        # the mapping run
+ros2 run warehouse_system_tests drive_route --route survey --speed 0.4 \
+  --turn-rate 0.2                                                           # the mapping run
 ros2 run warehouse_system_tests drive_route --route survey --speed 0.5 \
   --settle 30 --initial-pose-offset 0.3 -0.3 8                              # the AMCL evaluation run
 ros2 run warehouse_system_tests drive_route --route none \
@@ -49,7 +50,7 @@ face along the next segment, then drives along it and stops on the next waypoint
 | `--speed M_PER_S` | Cruise speed, default 0.4 m/s; at most the controller's 1.2 m/s |
 | `--turn-rate RAD_PER_S` | Yaw rate of the turns in place, default 0.5 rad/s |
 | `--settle SECONDS` | Stand still that long (sim time) before driving: the IMU noise check needs at least 25 s standing still |
-| `--initial-pose-offset DX DY DYAW_DEG` | Once AMCL is active (its lifecycle state), publish one pose on `/robot1/initialpose`: the true pose moved by DX, DY metres (map frame) and turned by DYAW_DEG degrees, covariance 0.5² m² and 0.2² rad². AMCL then starts from a wrong pose and must find the right one |
+| `--initial-pose-offset DX DY DYAW_DEG` | Once AMCL is active (its lifecycle state), publish a pose on `/robot1/initialpose`: the true pose moved by DX, DY metres (map frame) and turned by DYAW_DEG degrees, covariance 0.5² m² and 0.2² rad². AMCL then starts from a wrong pose and must find the right one. The pose goes out once the publisher is 3 s old, and again (up to 3 times) until AMCL answers on `amcl_pose` |
 | `--namespace NS` | The robot, default `robot1` |
 | `--dry-run` | Print the waypoints, the length and the expected time (the route driven by an ideal robot), and exit without touching the ROS graph |
 
@@ -59,6 +60,29 @@ command's header stamp, in sim time. So the driver publishes `TwistStamped` on
 `/robot1/cmd_vel` every 0.05 s while driving, also when the command does not change, stamped
 with the node's sim-time clock. A wall-clock stamp would be wrong in simulation (plan R1).
 
+**The first command only once the controller listens.** DDS delivers messages only between a
+publisher and a subscription that discovery has matched, a fraction of a second after the
+publisher is created, and it matches the two ends separately. A command that reaches the
+controller before its end knows the publisher is dropped and sent again later, by then too old
+for `cmd_vel_timeout`: in one mapping run the first four commands were ignored that way and the
+robot started late. So the driver waits until ROS lists `diff_drive_controller`'s subscription
+to `/robot1/cmd_vel` and its publisher is matched with every subscription listed (a count above
+zero is not enough: a bag recorder that records `/robot1/cmd_vel` may be matched first). The
+controller's end cannot be checked from the driver, so the first command also waits until the
+driver has run for 3 s (`DISCOVERY_SETTLE`).
+
+**The initial pose, the same way.** AMCL subscribes to `initialpose` best effort (the system
+default QoS), so a pose that reaches AMCL before its end of the match knows the publisher is
+dropped, and DDS never sends it again; AMCL would then stay at the true pose, and the
+evaluation would report a convergence that never happened. So the driver publishes the pose
+once its publisher is 3 s old, and checks the answer: AMCL publishes `amcl_pose` after every
+initial pose, and a robot standing still gives it no other reason to. Without an answer within
+5 s it publishes again, up to 3 times, then exits with 1. AMCL logs one warning for the pose,
+`Failed to transform initial pose in time (Lookup would require extrapolation into the
+future ...)`: the pose carries the stamp of the ground truth it was made from, about 12-20 ms
+newer than the EKF's newest transform, so AMCL cannot add the motion since then and adds none.
+The robot stands still, so none is right.
+
 **Within the controller's limits.** Speed and turn rate are checked against `controllers.yaml`.
 Commands change by at most half the controller's acceleration limits, so the controller never
 has to clip them, and stops are planned with half of that braking again: a robot that lags
@@ -67,8 +91,10 @@ acts 0.1 s late, the driver stays within 1 cm of the route at 1.2 m/s; without t
 reserve it left the route by 0.28 m.
 
 **Exit codes:** 0 the route was driven; 1 it could not be (no ground truth within 30 s, AMCL
-not active within 60 s, the robot more than 0.5 m from the route's start, no progress for 10 s,
-or the simulation clock stopped); 2 a bad argument; 130 stopped by Ctrl-C. Before every exit
+not active within 60 s or not answering the initial pose, the robot more than 0.5 m from the
+route's start, `diff_drive_controller` not receiving the commands within 30 s, no progress for
+10 s, or the simulation clock stopped);
+2 a bad argument; 130 stopped by Ctrl-C. Before every exit
 the robot is commanded to stop. If the driver dies anyway, the controller's timeout stops the
 robot: that is what the timeout is for.
 
