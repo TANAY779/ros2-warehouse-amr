@@ -133,8 +133,10 @@ rotations 0.249, 0.125 and 0.289°.
   run starts at the world origin (ground truth (0, 0); the EKF (0, 0) at slam_toolbox's first
   scan; the first `map -> odom` the identity), so the shift builds up while mapping. SLAM's
   own pose shows it too, and it depends on where the robot heads: 0.3 to 2 cm off while
-  driving east, 7 to 8 cm while driving west. The cause is not found yet. AMCL's error against
-  ground truth (plan F7) will include this shift.
+  driving east, 7 to 8 cm while driving west. The cause is not found yet. AMCL on this map
+  shows no such bias: in both acceptance runs of 2026-11-08 its mean error against ground truth
+  was (+0.002, -0.009) m, and its largest error after convergence 0.092 and 0.090 m (plan F7
+  limit 0.10 m; the warehouse_navigation README has the numbers).
 
 ## A map of your own by teleop
 

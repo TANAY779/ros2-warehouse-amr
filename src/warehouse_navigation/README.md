@@ -125,7 +125,8 @@ to *configure* (read parameters, create publishers) and then to *activate* (star
   the bond topic is relative too (`/robot1/bond`), so each manager stays within its scope.
 
 Measured without Gazebo (wall time, 2026-11-06): slam_toolbox active 0.7 s after the launch
-started, `map_server` 0.6 s, AMCL 0.8 s.
+started, `map_server` 0.6 s, AMCL 0.8 s. In Gazebo (sim time, 2026-11-07 and 2026-11-08):
+slam_toolbox 1.5-1.7 s, `map_server` 1.5-1.7 s, AMCL 2.4-4.9 s.
 
 ### slam_toolbox: what changed and why
 
@@ -183,6 +184,22 @@ with the tuned values, two survey drives at 0.5 m/s, started 0.3 m and 8° off, 
 0.78 m and 1.22 m and stayed within 0.092 m and 0.090 m of ground truth for the next 7 minutes
 (P95 0.052 m and 0.057 m). The largest errors lie along the direction of travel, in long aisles
 and after the top-right corner, and recur at the same places from drive to drive.
+
+### The map, and how to make it again
+
+`maps/warehouse.{yaml,pgm}` is the map AMCL uses by default: 611 x 403 cells of 0.05 m, made by
+slam_toolbox on the scripted survey route on 2026-11-07 (run 1 of 3). `check_map` puts it 0.043 m
+and 0.015° from the layout (limits 0.05 m and 0.2°), with every occupied cell within 0.10 m of a
+layout face and no ghost walls. [maps/README.md](maps/README.md) has the exact commands to make it
+again (after any change to `layout.yaml` that the lidar can see), the numbers of every run, and
+what the runs taught: turn slowly, map alone on the laptop, start no ROS tools while driving.
+
+The fallback (plan risk R6) is the map `rasterize` draws from the layout:
+`ros2 run warehouse_layout rasterize --out /tmp/layout_map`, then
+`localization:=amcl map:=/tmp/layout_map.yaml`. Measured on the smoke route (2026-11-08, started
+0.42 m and 8° off): on the rasterized map AMCL converged after 1.62 m, then stayed within 0.096 m
+(mean 0.041 m); on the SLAM map, after 1.21 m and within 0.076 m (mean 0.019 m). It works, but
+the SLAM map is the better one.
 
 ### Mistakes that do not fail at start-up
 

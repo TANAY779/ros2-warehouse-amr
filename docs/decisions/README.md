@@ -12,6 +12,5 @@ for when to write one.
 | [004](ADR-004-ci-pipeline.md) | CI runs plain rosdep/colcon steps in the official ROS image | superseded by 008 |
 | [005](ADR-005-custom-tote-amr.md) | Build our own tote AMR on ros2_control, with an EKF for odometry | accepted |
 | [006](ADR-006-workspace-root-repository.md) | The repository root is the colcon workspace | accepted |
+| [007](ADR-007-generate-the-warehouse-from-one-layout.md) | Generate the warehouse from one `layout.yaml` | accepted |
 | [008](ADR-008-develop-on-main-without-automated-tests.md) | Develop on main without automated tests | accepted |
-
-007 is reserved for the Phase 2 decision to generate the warehouse from one `layout.yaml`.

@@ -7,30 +7,41 @@ finished phase, written to teach, see [phase-reports/](phase-reports/).
 
 **Where to read more:** the learning reports in [phase-reports/](phase-reports/) (start with
 [Phase 0](phase-reports/phase-00-foundation.md), then
-[Phase 1](phase-reports/phase-01-robot-description.md)); the phased plan with architecture and
+[Phase 1](phase-reports/phase-01-robot-description.md) and
+[Phase 2](phase-reports/phase-02-warehouse-world.md)); the phased plan with architecture and
 acceptance criteria in [PROJECT_PLAN.md](PROJECT_PLAN.md); the decision records in
 [decisions/](decisions/). New to terms such as rosdep, colcon, ruleset or ADR? See
 the [glossary in the Phase 0 report](phase-reports/phase-00-foundation.md#glossary); for URDF,
 TF, ros2_control, QoS or sim time, the
-[glossary in the Phase 1 report](phase-reports/phase-01-robot-description.md#glossary).
+[glossary in the Phase 1 report](phase-reports/phase-01-robot-description.md#glossary); for SLAM,
+AMCL, occupancy grids, lifecycle managers or rosbag2, the
+[glossary in the Phase 2 report](phase-reports/phase-02-warehouse-world.md#glossary).
 
 ## At a glance
 
-- **Current phase (as of 2026-11-06):** Phase 2 (warehouse world, mapping, localization) is in
-  progress. Its first half, the warehouse generated from one layout file, is merged into `main`
-  (2026-11-06); SLAM mapping and AMCL localization come next, after the owner's review of the
-  world. Phase 1 (robot description and first drive
-  in Gazebo) is **done and merged** into `main` (pull request #2, 2026-11-05), including the
-  owner's design review: a 360° lidar puck on the deck and a new look. Its
-  [learning report](phase-reports/phase-01-robot-description.md) is written. Still open for
-  Phase 1: the demo GIF (recorded by the maintainer, report exercise 7) and the `phase-1` tag.
-- **Last updated:** 2026-11-07
+- **Current phase (as of 2026-11-08):** Phase 2 (warehouse world, mapping, localization) is
+  **done**: the warehouse generated from one layout file (merged 2026-11-06), the SLAM map made
+  on a scripted survey route (2026-11-07) and AMCL localization on it (2026-11-08), with
+  [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md), the
+  [learning report](phase-reports/phase-02-warehouse-world.md) and the mapping GIF. Phase 3
+  (navigation with keep-out and speed zones, safety) is next. Phase 1 (robot description and
+  first drive in Gazebo) is **done and merged** into `main` (pull request #2, 2026-11-05),
+  including the owner's design review: a 360° lidar puck on the deck and a new look. Its
+  [learning report](phase-reports/phase-01-robot-description.md) is written. Still open: the
+  Phase 1 demo GIF (recorded by the maintainer, Phase 1 report exercise 7), the owner's own
+  teleop map (Phase 2 report exercise 6), and the tags `phase-1` and `phase-2`.
+- **Last updated:** 2026-11-08
 - **What runs today** (on `main`): our own robot (revision B, safety yellow and
   charcoal) drives by keyboard (the teleop window) through ros2_control, in an empty Gazebo world or in the
   generated 30 x 20 m warehouse (`world:=warehouse`), inside the `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
-  without a simulator. Measured in Gazebo: sensor rates
+  without a simulator. In the warehouse it maps with slam_toolbox (`localization:=slam`) and
+  localizes on the saved map with AMCL (`localization:=amcl`); command-line tools check a map
+  against the layout, drive scripted routes and measure localization against Gazebo's ground
+  truth from a bag. Measured in Gazebo: sensor rates
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
-  10 m, EKF within 0.09-0.42 %.
+  10 m, EKF within 0.09-0.42 %; the saved map lies within 0.043 m and 0.015° of the layout;
+  AMCL stays within 0.092 m of ground truth over a 7-minute, 175 m drive; the IMU noise is
+  within 3 % of `robot.yaml`.
 - **How changes are checked (since 2026-11-07):** there are no automated tests, lint checks or
   CI, and every commit goes straight to `main`, without branches or pull requests
   ([ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md)). A change is checked by
@@ -42,7 +53,7 @@ TF, ros2_control, QoS or sim time, the
 |---|---|---|---|
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` not yet created (as of 2026-11-04); its CI and lint gates removed on 2026-11-07 (ADR-008) |
 | M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending |
-| | 2 | Warehouse world generated from a layout file, mapping, localization | **in progress**: the generated world is merged (2026-11-06); mapping and localization next |
+| | 2 | Warehouse world generated from a layout file, mapping, localization | **done** 2026-11-08 ([report](phase-reports/phase-02-warehouse-world.md)); tag `phase-2` not yet created |
 | | 3 | Navigation with keep-out and speed zones, safety | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
@@ -63,9 +74,7 @@ scope and acceptance criteria.
 
 ## Features
 
-Only features that exist on `main` are listed; Phase 2 entries are added as they reach `main`
-(until then the map tools, SLAM and AMCL are described in the package READMEs).
-Commands assume the
+Only features that exist on `main` are listed. Commands assume the
 repository is cloned as `~/warehouse_ws` (its root is the colcon workspace, ADR-006) and a shell with only ROS 2 Jazzy and this workspace
 sourced (the [Phase 1 report](phase-reports/phase-01-robot-description.md#before-you-start)
 has a `wh_shell` function for that).
@@ -176,7 +185,89 @@ has a `wh_shell` function for that).
 - **How to use it:** it starts with every robot. Watch it with
   `ros2 topic echo /robot1/odom --field pose.pose`.
 - **Where it lives:** `warehouse_navigation/config/ekf.yaml`,
-  `warehouse_navigation/launch/ekf.launch.py`. AMCL (Phase 2) and Nav2 (Phase 3) join it here.
+  `warehouse_navigation/launch/ekf.launch.py`. SLAM and AMCL (Phase 2, the entries below) live in
+  the same package; Nav2 joins them in Phase 3.
+
+### Map tools (`warehouse_layout`)
+
+- **What it is:** two commands that connect the layout with maps: `rasterize` draws the map an
+  ideal SLAM run would make, and `check_map` measures how well a saved map lines up with the
+  layout (plan F5, P2-D13).
+- **What it does:** `rasterize` cuts every solid of `layout.yaml` at the lidar's scan plane
+  (0.34 m) and writes a map in map_server's format (YAML and PGM, 0.05 m cells, map frame = world
+  frame, yaw 0): the faces the lidar can see occupied, the hall floor free, the inside of solids
+  and the space behind the walls unknown (636 x 428 cells, 6473 occupied). It is the fallback
+  map of plan risk R6 and the grid of the Phase 3 masks. `check_map` fits a map's occupied cells
+  to those faces (point-to-plane ICP) and prints one `[PASS]` or `[FAIL]` line per mapping limit:
+  best-fit offset ≤ 0.05 m, rotation ≤ 0.2°, 95 % of occupied cells within 0.10 m of a face, at
+  most 1 % farther than 0.25 m (ghost walls), origin yaw 0. `--overlay` draws the map over the
+  layout. Measured: the rasterized map fits within 0.001 m, a copy shifted by 0.15 m fails with
+  0.150 m, and the committed SLAM map passes with 0.043 m and 0.015°.
+- **How to use it:**
+
+  ```bash
+  ros2 run warehouse_layout rasterize --out /tmp/layout_map     # writes layout_map.yaml and .pgm
+  ros2 run warehouse_layout check_map src/warehouse_navigation/maps/warehouse.yaml \
+    --overlay /tmp/overlay.png                                   # 5 [PASS] lines, exit 0
+  ```
+
+- **Where it lives:** `warehouse_layout/warehouse_layout/` (`rasterize.py`, `check_map.py`,
+  `occupancy.py`); the package README's "Map tools" section explains the map files and the fit.
+
+### SLAM mapping (`warehouse_navigation`, slam_toolbox)
+
+- **What it is:** online, asynchronous SLAM with slam_toolbox 2.8.5: the robot builds the map of
+  the warehouse while it drives. It made the map AMCL uses.
+- **What it does:** `localization:=slam` adds slam_toolbox to the robot's namespace, configured
+  and activated by launch events (no lifecycle manager). It reads `/robot1/scan`, publishes
+  `map -> odom` on `/robot1/tf` and the map on `/map` every 2 s, which RViz (`map.rviz`) shows
+  growing. Its configuration is slam_toolbox's own sample with every key written out and each
+  change explained in the package README. The committed map `maps/warehouse.{yaml,pgm}` (611 x 403 cells of 0.05 m)
+  was made on the scripted survey route: 175.6 m in 9 min 40 s, real-time factor 0.999;
+  `check_map` 0.043 m, 0.015°, P95 0.055 m, no ghost walls. It is the best of three runs made
+  the same way; one missed the offset limit by 4 mm.
+- **How to use it:** each command in its own terminal; `maps/README.md` has the full procedure
+  with the recorder:
+
+  ```bash
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam
+  ros2 lifecycle get /robot1/slam_toolbox                       # active [3]
+  ros2 run warehouse_system_tests drive_route --route survey --speed 0.4 --turn-rate 0.2
+  ros2 run nav2_map_server map_saver_cli -f /tmp/my_map -t /map --fmt pgm \
+    --ros-args -p use_sim_time:=true -p save_map_timeout:=10.0
+  ros2 run warehouse_layout check_map /tmp/my_map.yaml --overlay /tmp/my_overlay.png
+  ```
+
+- **Where it lives:** `warehouse_navigation/` (`config/slam_toolbox.yaml`,
+  `launch/slam.launch.py`, `maps/` with its README: how the map was made, every run's numbers,
+  how to make it again).
+
+### AMCL localization (`warehouse_navigation`)
+
+- **What it is:** Nav2's AMCL (adaptive Monte Carlo localization), a particle filter that keeps
+  the robot's pose on the saved map, with `map_server` serving the map.
+- **What it does:** `localization:=amcl` starts `map_server` and its lifecycle manager in `/` (the
+  map on `/map`, reliable and transient local, so a late subscriber still gets it), and AMCL and
+  its lifecycle manager in `/robot1`, starting at the spawn pose. AMCL publishes `map -> odom` on
+  `/robot1/tf`, `amcl_pose` and `particle_cloud`. `map_server` is active 1.5-1.7 s and AMCL
+  2.4-4.9 s after the launch. Tuned on the evaluation: 240 beams per scan and odometry noise 0.02 (Nav2's sample: 60
+  and 0.2). Measured on the survey route at 0.5 m/s, started (0.3, -0.3) m and 8° off: converged
+  after 0.78 m, then within 0.092 m of ground truth (mean 0.024 m) for 7 min 07 s; a repeat run
+  converged after 1.22 m and stayed within 0.090 m.
+- **How to use it:**
+
+  ```bash
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl
+  ros2 lifecycle get /map_server && ros2 lifecycle get /robot1/amcl   # active [3] both
+  ros2 run tf2_ros tf2_echo map base_footprint \
+    --ros-args -r /tf:=/robot1/tf -r /tf_static:=/robot1/tf_static
+  ```
+
+  In RViz, the "2D Pose Estimate" tool puts AMCL somewhere else; drive and watch the particle
+  cloud find the robot again. `map:=` serves another map, for example the rasterized one.
+- **Where it lives:** `warehouse_navigation/` (`config/amcl.yaml`, `config/map_server.yaml`,
+  `launch/localization.launch.py`, `launch/map_server.launch.py`); the README explains the
+  frames, scopes, QoS, lifecycle and every changed parameter.
 
 ### Simulation bring-up (`warehouse_bringup`)
 
@@ -187,7 +278,11 @@ has a `wh_shell` function for that).
   `robot_state_publisher`, the controller manager, the three controllers and the EKF inside
   `/<namespace>`, with the robot's transforms on `/<namespace>/tf`. It sets `use_sim_time` and
   an absolute namespace itself, so it also runs on its own next to `gazebo.launch.py` or
-  inside a fleet launch (Phase 9).
+  inside a fleet launch (Phase 9). `localization:=slam` adds slam_toolbox to the robot;
+  `localization:=amcl` adds AMCL to the robot and the map server (the `map:=` file, by default
+  the committed warehouse map) in the system scope. RViz then opens `map.rviz` (fixed frame
+  `map`) instead of `robot.rviz` (fixed frame `odom`). Mock hardware has no lidar, so it refuses
+  both before anything starts.
 - **How to use it:** from `~/warehouse_ws`:
 
   ```bash
@@ -197,13 +292,15 @@ has a `wh_shell` function for that).
   ros2 launch warehouse_bringup sim.launch.py                   # Gazebo + RViz, robot in /robot1
   ros2 launch warehouse_bringup sim.launch.py headless:=true    # no windows
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock    # no simulator
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # map
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # localize
   ros2 control list_controllers -c /robot1/controller_manager   # three controllers, all active
   ```
 
   Check a change with these commands and the others in
   [Checking the robot by hand](../src/warehouse_bringup/README.md#checking-the-robot-by-hand).
-- **Where it lives:** `warehouse_bringup/` (`launch/`, `rviz/robot.rviz`, README with every
-  argument and the checks to run by hand).
+- **Where it lives:** `warehouse_bringup/` (`launch/`, `rviz/robot.rviz`, `rviz/map.rviz`,
+  README with every argument and the checks to run by hand).
 
 ### Keyboard teleoperation
 
@@ -267,7 +364,9 @@ has a `wh_shell` function for that).
   mapping run; `smoke`, 24 m) with commands at 20 Hz stamped in sim time, steering on ground
   truth; `evaluate_localization` reads a bag and reports AMCL's error against ground truth, the
   EKF's drift and the IMU noise, with a `[PASS]` or `[FAIL]` line per Phase 2 criterion;
-  `map_timelapse` turns a mapping bag into a GIF.
+  `map_timelapse` turns a mapping bag into a GIF. Measured: the survey route at 0.4 m/s took
+  9 min 40 s of sim time, commands at 20.00 Hz; `evaluate_localization` on the acceptance bag
+  passes 4 of 4 checks; `map_timelapse` made the Phase 2 GIF (60 frames, 0.18 MB) in about 3 s.
 - **How to use it:** with `ros2 launch warehouse_bringup sim.launch.py world:=warehouse` running:
 
   ```bash
@@ -325,8 +424,7 @@ has a `wh_shell` function for that).
   changed decision gets a new ADR that supersedes the old one.
 - **How to use it:** copy `docs/decisions/ADR-000-template.md` to the next number and add a
   row to the index.
-- **Where it lives:** [docs/decisions/](decisions/) (ADR-001 to ADR-006 and ADR-008 so far; 007
-  is reserved for Phase 2's layout decision).
+- **Where it lives:** [docs/decisions/](decisions/) (ADR-001 to ADR-008 so far).
 
 ### Contribution workflow and conventions
 
@@ -395,7 +493,10 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-05 | The repository root is now the colcon workspace: the repository is cloned as `~/warehouse_ws`, packages moved to `src/`, `.gitignore` keeps `build/`, `install/` and `log/` out; CI, the dev container, README, CONTRIBUTING and the reports follow. History is kept (the move is one rename commit) | The owner wants one repository at the workspace root that VS Code finds directly; GitHub still finds the README, licence and `.github/` at the root | adopted | [ADR-006](decisions/ADR-006-workspace-root-repository.md) |
 | 2026-11-05 | Phase 2 warehouse: a 30 x 20 m hall, 4 pick aisles in 2 blocks (8 shelf rows, 414 slots), an open handling floor in the east; plain uniform racks with no totes and no per-aisle colours until Phase 7 (colours live in the layout's `style:` block) | The owner's choices in the Phase 2 plan review: big enough for 3 robots and aisle traffic in Phase 11, small enough to map quickly; totes arrive with their tags in Phase 7 | adopted | [warehouse_layout](../src/warehouse_layout/README.md) |
 | 2026-11-05 | One `layout.yaml` generates the Gazebo world, the location registry and the expected inventory; the generated files are committed, byte-identical run to run, and `generate --check` catches a stale one; fit rules are tests that read the robot's size from `robot.yaml` (`warehouse_description.robot_config`) | Plan D8: one source of truth, so the world, the waypoints and the inventory can never disagree; a reviewer sees every change to the world in the diff | adopted | [warehouse_layout](../src/warehouse_layout/README.md#generated-files) |
-| 2026-11-05 | The committed SLAM map will come from a scripted survey route; a teleop map is a learning-report exercise | A scripted route is repeatable, so the map can be rebuilt after a layout change | planned (Phase 2) | Plan, Phase 2 |
+| 2026-11-05 | The committed SLAM map will come from a scripted survey route; a teleop map is a learning-report exercise | A scripted route is repeatable, so the map can be rebuilt after a layout change | adopted (the map of 2026-11-07) | [maps/README.md](../src/warehouse_navigation/maps/README.md) |
+| 2026-11-05 | One frame for everything: `layout.yaml` is written in the map frame, which is the Gazebo world frame, with its origin at robot1's spawn pose facing east; a fit rule keeps robot1 at (0, 0, 0) | The EKF starts `odom` and slam_toolbox starts `map` where robot1 stands, so the saved map lines up with the world and the layout with no correction step, and the Phase 3 masks can use the layout's coordinates directly. A hall-corner origin would need every saved map shifted by hand | adopted | [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md), plan §2.4 |
+| 2026-11-05 | Fit rules for the warehouse: the plinth rule of plan §2.6 becomes "everything the lidar must see is solid from the floor to at least 0.40 m, and nothing overhangs below 1.20 m"; pick aisles exactly 1.6 m between the faces; totes flush with the shelf face | The lidar sees only its 0.34 m plane, so the rule must hold for walls, counters, docks and fences too, not only shelves, and the robot's tote and mast must never meet what the lidar missed. The Phase 7 tag rule caps the aisle at about 1.62 m and leaves no room for a setback: 2 cm back, a tag is 39.6 px, under the 40 px limit | adopted | plan §2.6, [warehouse_layout](../src/warehouse_layout/README.md#fit-rules) |
+| 2026-11-05 | The generated world: one static model per object, one collision box per solid, visuals for the detail, primitives only | Cheap physics and a simple generator. Measured on a prototype of the world with a lidar probe in headless Gazebo: real-time factor 1.000 with 262 visuals and 85 collisions, 0.999 with 207 totes added (468 visuals); the built world with the robot ran at 1.01 | adopted | [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md) |
 | 2026-11-06 | The generated warehouse is merged into `main` before mapping starts | The owner reviews the world first; mapping and localization follow in a later pull request | done | [warehouse_layout](../src/warehouse_layout/README.md) |
 | 2026-11-06 | ML/DL perception research resumed and finished: use cases, synthetic data from Gazebo, training on Colab, CPU inference and ROS 2 integration, each reviewed against the current robot and layout | The owner asked to resume it; the report recommends one class `tote`, D-FINE-N run on the CPU from C++, and a new `UNLABELED` discrepancy | done | [ML report](research/ML_PERCEPTION.md) |
 | 2026-11-06 | Perception design document: the ArUco method (Phases 7-8) and the learned detector (8b) in one design, from the ArUco research, its skeptical review and the ML report, then two more reviews. It proposes 29 changes to the plan (among them: choose the IPPE pose that fits best, never the one nearest the stored dock yaw; a dock tag tilted 20°; M2 re-estimated at about 75-119 h) and asks five questions (O3-O7); the plan is not edited until they are answered | The review found that the plan's rule (pick the IPPE solution nearest the database dock yaw) makes a dock rotated by 5° worse; the owner wants an in-depth reference before Phase 7 | in review | [Perception design](PERCEPTION.md) |
@@ -403,7 +504,15 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-06 | `cmd_vel_timeout` 0.5 → 0.15 s in `controllers.yaml`. The rule this creates: every `cmd_vel` publisher publishes continuously at 10 Hz or more while the robot should move (Nav2's velocity smoother 20 Hz, its docking server 50 Hz, the tests 20 Hz), or the robot brakes between commands; a command whose stamp is already 0.15 s old on arrival is ignored. The system tests now derive their time windows from the value | The owner's request after driving the warehouse by teleop: each key event drove the robot for 0.5 s, too long for small, accurate moves. Measured in headless Gazebo (keyboard emulated like teleop on this desktop, 3 runs each, real-time factor 1.00): a tap of `j` turns 3.9° instead of 28.6°, a tap of `i` moves 1.4 instead of 15.4 cm; after a held key is released the robot stands still 0.49 s after the last key event instead of 0.84 s (0.15 s timeout plus 0.33 s braking). The cost: teleop sends one command per key event and GNOME repeats a held key only after 500 ms, so a held key now stops for 0.20-0.30 s before it drives on (0.5 s bridged that gap). Removing that stop needs a teleop that sees key releases: the teleop window (next row) | adopted | [controllers.yaml](../src/warehouse_description/config/controllers.yaml), plan R1, [warehouse_bringup](../src/warehouse_bringup/README.md#driving-with-teleop) |
 | 2026-11-06 | The teleop window, `ros2 run warehouse_bringup teleop_window`: a Qt window that publishes when a key is pressed, repeats the command at 20 Hz while it is held, sends three zero commands over 0.1 s when it is released and then nothing, and sends one zero command when the window loses the keyboard (a dead-man switch). Speeds start at 0.3 m/s and 0.6 rad/s, so braking takes 0.2 s. The key logic is plain Python, tested with pytest; `teleop_twist_keyboard` stays as the terminal alternative, and `cmd_vel_timeout` stays 0.15 s | The owner, after driving with 0.15 s: "remove the delay completely, I am not feeling it that in control". A terminal never sees a key release, so teleop_twist_keyboard leaves the stop to the timeout and stops a held key until auto-repeat starts. Measured in headless Gazebo (the real window offscreen, synthetic key events, ground truth, 3 runs each, real-time factor 1.00), at 0.5 m/s and 1.0 rad/s: the first zero command arrives under 2 ms after the release; the robot stands still 0.34 s after it instead of 0.49 s, 8.3 cm or 9.7° further on instead of 16.0 cm or 18.2°; a held key never stops (0.2-0.3 s before). At 0.3 m/s and 0.6 rad/s: 0.21 s and 3.1 cm or 3.5°. What remains is braking at the controller's deceleration limits. Cost: a Python node on sim time, 0.4-0.6 cores while open, the same as teleop_twist_keyboard | adopted | [warehouse_bringup](../src/warehouse_bringup/README.md#the-teleop-window) |
 | 2026-11-06 | The teleop window needs no arguments: `ros2 run warehouse_bringup teleop_window` starts its node in `/robot1` (`--ros-args -r __ns:=/robotN` still picks another robot) and chooses its clock itself: sim time as soon as `/clock` has a publisher, wall time once the robot has listened 2 s without one (`use_sim_time:=true` still forces sim time). It publishes nothing until the robot listens and the clock is chosen, and a coloured line at its top says so: green when the keys drive, amber while it looks for the robot or chooses the clock, red when nothing listens on the topic it names, with the likely causes and any robot it finds in another namespace | The owner started the simulation, then the window with no arguments: its node came up in the root namespace and published `/cmd_vel` with wall-clock stamps while the robot listens on `/robot1/cmd_vel`, so real key presses did nothing, and the small status text that said so went unnoticed. Verified in headless Gazebo, with the real window offscreen and keys sent through Qt's window path: with no arguments it drove robot1 (54.8 cm for a 2 s hold of the up arrow, standing still 0.21 s after the release, all stamps in sim time); with `hardware:=mock` it chose wall time after 2 s and the robot moved; with `-r __ns:=/robot2` it published only on `/robot2/cmd_vel` and its red line named `/robot1/cmd_vel`; with nothing running it published nothing | adopted | [warehouse_bringup](../src/warehouse_bringup/README.md#the-teleop-window) |
+| 2026-11-06 | Map tools in `warehouse_layout`: `rasterize` draws the map an ideal SLAM run would make (the faces the lidar sees occupied, the inside of solids unknown, written like `map_saver_cli`'s trinary maps with `free_thresh` 0.196); `check_map` fits a map to the layout's faces with point-to-plane ICP and checks the mapping limits, with the distances measured after the fit | A number with a limit instead of judging an overlay by eye (plan P2-D13); the same grid is the fallback map of R6 and the grid of the Phase 3 masks. With `free_thresh` 0.25 the unknown pixels (205) would load back as free floor. Measuring after the fit makes a misplaced map and a blurred map fail different lines | adopted | [warehouse_layout](../src/warehouse_layout/README.md#map-tools) |
+| 2026-11-06 | `localization:=none\|slam\|amcl` (default `none`) and `map:=`: the map server in the system scope (one `/map` for every robot), slam_toolbox and AMCL in the robot scope. slam_toolbox is configured and activated by launch events, without a lifecycle manager or bond; `map_server` and AMCL each have a Nav2 lifecycle manager with a bond. Every parameter file uses `/**/` keys, scan topics are relative and every map topic is the absolute `/map`; slam_toolbox's whole 2.8.5 sample is written out, without `min_laser_range` | Plan P2-D8, P2-D9 and D20: Phase 9 adds robots without rewiring. A long loop-closure optimization could miss a bond heartbeat, and a manager would then shut the mapping down. A plain `slam_toolbox:` key matches nothing in `/robot1`; AMCL's default `map` topic resolves to `/robot1/map`, where nothing publishes; a key left out of slam_toolbox's file takes the node's built-in default, which differs from the sample for several keys; slam_toolbox 2.8.5 never reads `min_laser_range` | adopted | [warehouse_navigation](../src/warehouse_navigation/README.md#mapping-and-localization-phase-2) |
+| 2026-11-06 | Test tools in `warehouse_system_tests`: `drive_route` drives a registry route steering on Gazebo's ground truth (20 Hz commands stamped in sim time), `evaluate_localization` measures AMCL at each `amcl_pose` stamp against interpolated ground truth and the IMU noise from still periods, `map_timelapse` writes the GIF with Pillow | Repeatable mapping and evaluation drives (plan P2-D11); ground truth stays in test tools, never in the robot stack. `amcl_pose` carries the scan's stamp, while AMCL dates its `map -> odom` transform 1 s into the future (P2-D12) | adopted | [warehouse_system_tests](../src/warehouse_system_tests/README.md) |
 | 2026-11-07 | No automated tests, lint checks or CI, and every commit goes straight to `main`, without branches or pull requests. Removed: the CI workflow, Dependabot, the pull request template, the pre-commit and lint configuration (`.pre-commit-config.yaml`, `.flake8`, `.yamllint`), `colcon.meta`, and every test with its build settings (the `test/` folders, the `if(BUILD_TESTING)` blocks, every `test_depend`, the test settings of `warehouse_layout/setup.py`, the helpers only the launch tests used); the dev container drops pre-commit and the lint tools. Kept: the robot, every tool (`warehouse_system_tests` keeps its name and its three tools), `.editorconfig` and `.clang-format`. A change is checked by building it and running the system; the owner removes the pull-request rule of the "Protect main" ruleset on GitHub | The owner's decision: stop linting and testing, remove the testing files, and keep every commit on `main`. Paused tests still had to follow every change, and branches and pull requests added steps with nothing to gate. The cost: a regression shows up only when the system is run, and numbers shared between files are kept in step by hand | adopted | [ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md), [CONTRIBUTING](../CONTRIBUTING.md#build-and-run) |
+| 2026-11-07 | Mapping settings: slam_toolbox's `fine_search_angle_offset` 0.00087 rad (0.05°) instead of the sample's 0.2°; the survey driven at 0.4 m/s with turns at 0.2 rad/s; nothing else running on the laptop and no ROS command-line tool started during the drive. The committed map is run 1 of 3: `check_map` 0.043 m, 0.015°, P95 0.055 m, no ghost walls; run 2 missed the offset limit by 4 mm (0.054 m), run 3 passed (0.047 m) | The setting is the fine scan match's angle step, so 0.2° steps left the map turned by 0.25°. The EKF lags ground truth by about 19 ms, which misplaces scans taken while turning (0.54° at 0.5 rad/s). A second Gazebo stalled the wheel odometry for 0.08-0.35 s, and starting a command-line tool paused it for 0.07-0.28 s. The cause of a 4-5 cm south-west offset in every map is not found yet | adopted | [maps/README.md](../src/warehouse_navigation/maps/README.md) |
+| 2026-11-07 | `drive_route` sends its first command only once `diff_drive_controller`'s subscription is listed and matched and its publisher is 3 s old; the initial pose for AMCL waits the same way and is confirmed by AMCL's answer on `amcl_pose` | DDS matches the two ends of a connection separately: a command that reaches the controller before its end knows the publisher is resent later, by then too old for `cmd_vel_timeout`, and ignored (the first four commands of one run, 0.33-0.89 s late). With the wait, 6 of 6 starts were clean | adopted | [warehouse_system_tests](../src/warehouse_system_tests/README.md#drive_route) |
+| 2026-11-08 | AMCL tuned on the evaluation: `max_beams` 60 → 240 and `alpha1`-`alpha4` 0.2 → 0.02, chosen one parameter at a time by replaying recorded drives through AMCL (the replay reproduced the live run's 464 poses exactly) | With Nav2's sample values the particle cloud stayed 0.15-0.45 m wide and the error wandered up to 0.26 m: the simulated odometry drifts only about 0.03 % of the distance driven. Two live survey drives with the tuned values passed every check (converged after 0.78 and 1.22 m, then within 0.092 and 0.090 m for 7 minutes). A real robot needs larger values, from its measured odometry error | adopted | [warehouse_navigation](../src/warehouse_navigation/README.md#amcl-what-changed-and-why) |
+| 2026-11-08 | Long simulation runs on mains power with the lid open, under `systemd-inhibit --what=idle:sleep`; a run with a suspend in it does not count | The laptop suspends after 15 minutes idle on battery and when the lid closes; a suspend froze the first AMCL acceptance drive after 288 s | adopted | [Phase 2 report](phase-reports/phase-02-warehouse-world.md) |
+| 2026-11-08 | Phase 2 done. Its acceptance is reworded for local runs (plan §9 and ADR-008: `generate --check` and `preview` replace the tests; the map, AMCL and IMU limits are unchanged) and met. [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md) records the layout decision; the learning report and the mapping GIF (0.18 MB, made by `map_timelapse` from the mapping bag) are written | Every criterion is measured with the tools; the report teaches the phase with exercises run against the real system | done | [Phase 2 report](phase-reports/phase-02-warehouse-world.md) |
 
 ## Planned features
 
@@ -412,8 +521,6 @@ Short list per milestone; details and acceptance criteria are in the plan. All *
 - **M1 Core AMR (`v1.0.0`)**
   - Phase 1's demo GIF: teleop with the RViz sensor view, recorded by the maintainer (steps in
     [exercise 7 of the Phase 1 report](phase-reports/phase-01-robot-description.md#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
-  - SLAM mapping of the warehouse from a scripted survey route, and AMCL localization
-    (Phase 2).
   - Nav2 navigation with keep-out and speed zones and a collision monitor (Phase 3).
   - Custom interfaces and a behaviour-tree task executor (Phase 4a).
   - Order manager, order generator and KPI tracking (Phase 4b).

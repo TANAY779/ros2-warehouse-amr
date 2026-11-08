@@ -98,6 +98,14 @@ route's start, `diff_drive_controller` not receiving the commands within 30 s, n
 the robot is commanded to stop. If the driver dies anyway, the controller's timeout stops the
 robot: that is what the timeout is for.
 
+**Measured in Gazebo** (2026-11-07 and 2026-11-08): the survey takes 9 min 40 s of sim time at
+0.4 m/s with turns at 0.2 rad/s (175.6 m), and 7 min 12 s at 0.5 m/s with the default turns; the
+smoke route 1 min 11-14 s at 0.5 m/s. Commands went out at 20.00 Hz, and in 13 logged drives the
+robot stopped 0.02-0.03 m from the last waypoint. AMCL answered the initial pose 0.07-0.13 s
+after it was sent. The driver uses about 0.4 of a CPU core: it is a Python node on sim time,
+and `/clock` ticks 1000 times a second. A second SIGINT while it is stopping the robot prints a
+traceback; the first stop command has already gone out by then.
+
 ### evaluate_localization
 
 ```bash
@@ -137,6 +145,18 @@ the EKF's drift.
 **Exit codes:** 0 every criterion passes; 1 one fails; 2 the bag cannot be read, has no
 `amcl_pose` or ground truth, or the plot cannot be written.
 
+Start the recorder after the launch, as above: it then takes each publisher's QoS. A recorder
+that subscribes before a publisher exists (for example with `--include-unpublished-topics`) uses
+volatile QoS and records none of the one transient-local `tf_static` message. The evaluation does
+not need `tf_static`, but a replay of the bag through AMCL does.
+
+**Measured** on the acceptance run of 2026-11-08 (the survey at 0.5 m/s after 30 s standing
+still, started 0.3 m, -0.3 m and 8° off): AMCL converged after 0.78 m and stayed within 0.092 m
+of ground truth for 7 min 07 s (mean 0.024 m, P95 0.052 m); the EKF drifted 0.058 m over
+175.6 m; the IMU's σ was 0.99-1.03 times `robot.yaml` on every axis, from 40.6 s standing still
+with 506 repeated samples removed; 4 of 4 checks passed. The full output is in the
+[Phase 2 report](../../docs/phase-reports/phase-02-warehouse-world.md#exercise-8-measure-localization-from-a-bag).
+
 ### map_timelapse
 
 ```bash
@@ -151,7 +171,9 @@ in RViz), the ground-truth path so far in blue and the robot in orange; frames a
 spaced in sim time, and the last one stays for 2 s. Options: `--frames` (default 60),
 `--width` in pixels (640), `--frame-ms` (100), `--max-mb` (3, the repository's limit for
 `docs/media`), `--namespace`, `--map-topic`. All frames share a six-colour palette and Pillow
-stores only what changed from one frame to the next, so the file stays small: 0.06 MB for 60
-frames of a stand-in for the survey mapping run (the rasterized warehouse revealed along the
-route). If a GIF would still be larger than `--max-mb`, the command keeps every second frame,
-then narrows the frames, until it fits; exit code 1 if it cannot.
+stores only what changed from one frame to the next, so the file stays small: the Phase 2 GIF,
+`docs/media/phase-02-mapping.gif`, is 60 frames of 640 x 452 px in 0.18 MB, made in about 3 s
+from the 218 MiB bag of the survey mapping run (10 min 08 s of mapping); a smoke-route mapping
+gives 0.11 MB. The same bag always gives the same bytes. If a GIF would still be larger than
+`--max-mb`, the command keeps every second frame, then narrows the frames, until it fits; exit
+code 1 if it cannot.

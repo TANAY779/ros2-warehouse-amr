@@ -132,13 +132,17 @@ hardware:=gz, or leave localization at none.
 ```
 
 With `localization:=amcl`, `sim.launch.py` checks that the map file exists before Gazebo starts.
-Until the warehouse map is saved ([its README](../warehouse_navigation/maps/README.md)), use a
-map drawn from the layout:
+By default it serves the committed warehouse map, made with slam_toolbox
+([its README](../warehouse_navigation/maps/README.md)). `map:=` serves another one, for example a
+map of your own or the map drawn from the layout (the fallback of plan risk R6):
 
 ```bash
 ros2 run warehouse_layout rasterize --out /tmp/layout_map
 ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl map:=/tmp/layout_map.yaml
 ```
+
+Measured in headless Gazebo (2026-11-07 and 2026-11-08): `map_server` active 1.5-1.7 s after the
+launch, AMCL 2.4-4.9 s, slam_toolbox 1.5-1.7 s. With `localization:=slam` or `amcl`, RViz opens `map.rviz`.
 
 `robot.launch.py localization:=amcl` on its own needs the map server next to it, as Phase 9 will
 run it: the system scope once, the robot scope per robot.
@@ -366,6 +370,18 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
   global `/tf`.
 - `Could not enable FIFO RT scheduling policy` from the controller manager: a normal desktop
   user may not use real-time scheduling. Simulation does not need it.
+- With `localization:=amcl`, AMCL logs `Failed to transform initial pose in time (Lookup would
+  require extrapolation into the future ...)` once for each initial pose (at the start, from
+  RViz's "2D Pose Estimate", from `drive_route --initial-pose-offset`). The pose is a few
+  milliseconds newer than the EKF's latest transform, so AMCL adds no motion since then; the robot
+  stands still, so that is right.
+- At every Ctrl-C, launch logs `[ERROR] [launch]: Caught exception in launch (see debug for
+  traceback): Cannot shutdown a ROS adapter that is not running`. Every process still stops.
+- Now and then Gazebo ignores the SIGINT and launch escalates (`failed to terminate '5' seconds
+  after receiving 'SIGINT', escalating to 'SIGTERM'`, then `'SIGKILL'`): the upstream shutdown
+  hang described in the warehouse_gazebo README. Launch still stops everything.
+- `ros2 lifecycle get` right after a launch may answer `Node not found`: discovery has not
+  finished. Run it again a second later.
 
 ## Prerequisites
 

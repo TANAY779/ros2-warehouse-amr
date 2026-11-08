@@ -239,7 +239,9 @@ below the scan plane, so not drawn: contact_bar, dock_plate
   at x -1.5 / 28.5, y -2.0 / 18.0). Nothing has to be shifted or turned.
 
 It is the fallback map of plan risk R6 (AMCL can run on it if the SLAM map fails), and in
-Phase 3 the grid on which the keepout and speed masks are drawn. `--resolution` changes the
+Phase 3 the grid on which the keepout and speed masks are drawn. Measured in Gazebo on the smoke
+route (2026-11-08): AMCL on this map converged after 1.62 m and then stayed within 0.096 m of
+ground truth (mean 0.041 m); on the SLAM map, within 0.076 m (mean 0.019 m). `--resolution` changes the
 cell size; `--layout` and `--robot` work as in `preview`. The same layout always gives the same
 bytes.
 
@@ -286,6 +288,10 @@ wrote /tmp/overlay.png
 5 of 5 map checks pass
 ```
 
+On the committed SLAM map (`src/warehouse_navigation/maps/warehouse.yaml`) all five lines pass:
+offset 0.043 m (move the map x -0.022, y -0.036 m), rotation 0.015 deg, 100 % of the 7285 occupied
+cells within 0.10 m (P50 0.012 m, P95 0.055 m, max 0.06 m), no ghost cells, yaw 0.
+
 It takes the centre of every occupied cell, fits the cells to the faces the lidar can see (ICP,
 below), and then measures each cell's distance to the nearest face after that fit. The lines
 are plan F5's acceptance criteria:
@@ -299,7 +305,8 @@ are plan F5's acceptance criteria:
 | origin yaw | The yaw in the map's `origin` | 0 | Nav2's AMCL and costmaps use only the origin's x and y, and the Phase 4 dashboard draws the map unturned |
 
 A cell's centre lies half a cell (0.025 m) from the face it holds, so a perfect map reads P50
-0.025 m. Exit codes: 0 every line passes; 1 a line fails, or no fit is possible (an empty map,
+0.025 m. A SLAM map can read less (0.012 m above): slam_toolbox marks the cell in which a beam
+ends, and that cell can lie on either side of the face. Exit codes: 0 every line passes; 1 a line fails, or no fit is possible (an empty map,
 or a map of somewhere else); 2 the map file, `layout.yaml` or `robot.yaml` cannot be read,
 or the overlay cannot be written. A malformed map file gives an error that names the file and
 the problem, for example
@@ -327,9 +334,10 @@ it belongs to; but to pair them, you must already know how the map sits on the l
 
 - **Point-to-plane:** a cell is pulled across its face, never along it. A cell on a long wall
   has no true partner along the wall (its nearest face point is just the foot of a
-  perpendicular), so only the distance across the wall is an error. On this warehouse it
-  settles in about 5 iterations to within a millimetre; the textbook point-to-point form (pull
-  each cell towards the face point itself) needed 10 to 30 and stopped 2 to 3 mm short.
+  perpendicular), so only the distance across the wall is an error. On the maps of Phase 2 it
+  settles in 4 iterations; on maps shifted or turned on purpose it needed 4 to 16 and came
+  within a millimetre, where the textbook point-to-point form (pull each cell towards the face
+  point itself) needed 9 to 28 and stopped 2 to 3 mm short.
 - **A shrinking cut-off:** pairs farther apart than a cut-off take no part, so ghost walls
   cannot drag the fit. The cut-off starts at 1.0 m, so a map that is off by more than a few
   cells is still caught (a 0.5 m shift or a 2 degree turn is found), and shrinks to 0.25 m,
