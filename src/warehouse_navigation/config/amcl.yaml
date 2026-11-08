@@ -2,9 +2,10 @@
 #
 # nav2_amcl 1.3.13. Every key not listed here keeps the node's built-in default, and for AMCL
 # those equal Nav2's own sample, nav2_bringup/params/nav2_params.yaml (checked key by key). The
-# listed keys either change a default (topics, laser ranges, initial pose) or say a value worth
-# knowing. Tune only if the evaluation (plan F7) fails, one parameter at a time: max_beams
-# first, then the odometry noise alpha1-alpha4 (plan P2-D14).
+# listed keys either change a default (topics, laser ranges, initial pose, max_beams, the
+# odometry noise) or say a value worth knowing. max_beams and alpha1-alpha4 were tuned on the
+# evaluation (plan F7), one parameter at a time, max_beams first (plan P2-D14); the numbers are
+# in the package README.
 #
 # Keys start with /**/ so they match the nodes in any namespace (/robot1/amcl).
 /**/amcl:
@@ -29,9 +30,27 @@
     # (0.10 and 20 m). Nav2's sample has 100.0 m, the range of another robot's lidar.
     laser_min_range: -1.0
     laser_max_range: -1.0
-    max_beams: 60                  # beams of each scan the filter weighs (of 720)
+    # Beams of each scan the filter weighs: 240 of the lidar's 720, one every 1.5 degrees. Nav2's
+    # 60 (one every 6 degrees) hits too few rack ends and end walls to pin the robot down along
+    # an aisle: with Nav2's odometry noise (0.2), 240 beams cut the poses more than 0.10 m off
+    # from 141 to 60 in the same drive.
+    max_beams: 240
     min_particles: 500
     max_particles: 2000
+
+    # Odometry noise of the motion model: how far each update scatters the particles, as a share
+    # of the motion since the last update. alpha1: rotation from rotation, alpha2: rotation from
+    # translation, alpha3: translation from translation, alpha4: translation from rotation.
+    # Nav2's 0.2 suits a real robot whose wheels slip; it scatters the particles by about 0.11 m
+    # and 6 degrees at every 0.25 m update. Here the EKF drifts about 0.03 % of the distance
+    # driven, so with 0.2 the cloud stayed 0.15-0.45 m and 8-21 degrees wide and the estimate
+    # wandered up to 0.26 m off. With 0.02 (0.035 m and 2 degrees per update) the largest error
+    # after convergence was 0.06-0.09 m in four drives; with 0.05 one drive went over 0.10 m.
+    # A real robot needs larger values: measure its odometry error first.
+    alpha1: 0.02
+    alpha2: 0.02
+    alpha3: 0.02
+    alpha4: 0.02
 
     # The filter runs when the robot has moved 0.25 m or turned 0.2 rad since the last update,
     # and publishes amcl_pose after each run. A robot standing still gets no new estimates.

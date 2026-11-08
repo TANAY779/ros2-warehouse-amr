@@ -155,12 +155,34 @@ the Ceres plugin reads it.
 
 `config/amcl.yaml` lists only some keys; every other one keeps AMCL's built-in default, which
 for AMCL equals Nav2's sample (`nav2_bringup/params/nav2_params.yaml`). Changed from the sample:
-`map_topic: /map` (above); `laser_max_range: -1`, which uses the scan's own 20 m from
-`robot.yaml` like `laser_min_range: -1` already does (the sample's 100 m belongs to another
-robot); and `set_initial_pose: true` with the spawn pose from the launch, so AMCL starts where
-the robot stands. Tune only with
-evidence from the evaluation (plan F7), one parameter at a time: `max_beams` first, then the
-odometry noise `alpha1`-`alpha4`.
+
+| Key | Sample | Ours | Why |
+|---|---|---|---|
+| `map_topic` | (not listed; built in: `map`) | `/map` | the one shared map (above) |
+| `laser_max_range` | 100.0 m | -1 | use the scan's own 20 m from `robot.yaml`, as `laser_min_range: -1` already does; 100 m belongs to another robot's lidar |
+| `set_initial_pose` | (not listed; built in: `false`) | `true` | start at the spawn pose from the launch, where the robot stands |
+| `max_beams` | 60 | 240 | weigh every third of the 720 rays. With 60, too few beams hit rack ends and end walls to fix the robot's place along an aisle |
+| `alpha1`-`alpha4` | 0.2 | 0.02 | the odometry noise. 0.2 suits wheels that slip: each 0.25 m update scattered the particles by about 0.11 m and 6°, while the EKF here drifts about 0.03 % of the distance. The cloud stayed 0.15-0.45 m wide and the estimate wandered up to 0.26 m off. Real robots need larger values |
+
+Both tuned values come from the evaluation (plan F7), one parameter at a time: `max_beams` first,
+then the odometry noise. To compare settings on identical input, the recorded scans and
+odometry of a drive were played back through AMCL (`ros2 bag play --clock`) with each setting.
+AMCL's random numbers repeat from start to start: replayed with the live run's settings, it
+published exactly the live run's poses (464 of 464 identical).
+
+| Setting (240 beams unless noted) | Largest error after convergence |
+|---|---|
+| Nav2's 60 beams, alpha 0.2 | 0.26 m; 141 poses over 0.10 m, a third of them |
+| alpha 0.2 | 0.19 m |
+| alpha 0.05 | 0.09-0.10 m; over 0.10 m in one of the four drives |
+| alpha 0.02 | 0.06-0.09 m |
+
+These replays used the first acceptance drive (to 106 m) and the three survey drives of the
+mapping runs ([maps/README.md](maps/README.md)), each started 0.3 m and 8° off. Then, in Gazebo
+with the tuned values, two survey drives at 0.5 m/s, started 0.3 m and 8° off, converged after
+0.78 m and 1.22 m and stayed within 0.092 m and 0.090 m of ground truth for the next 7 minutes
+(P95 0.052 m and 0.057 m). The largest errors lie along the direction of travel, in long aisles
+and after the top-right corner, and recur at the same places from drive to drive.
 
 ### Mistakes that do not fail at start-up
 
