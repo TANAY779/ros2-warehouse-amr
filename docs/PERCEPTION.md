@@ -2,7 +2,7 @@
 
 **In short.** The robot gets three cameras in Phase 7. It reads printed ArUco tags to dock with its charging contacts within 2 cm, and to check which tote stands in each of the warehouse's 414 shelf slots (Phases 7-8). A small neural network (Phase 8b, optional) later spots totes whose tag cannot be read. Both methods report through one message, so they can be compared head to head and combined. §8 lists the changes this design proposes to the plan, and §9.3 asks you five questions.
 
-> **Status (2026-11-06): design only. Nothing in this document is built.** The robot is still revision B (a lidar and an IMU, no cameras) and Phase 2 (the warehouse world) is in progress. Cameras arrive with revision E in Phase 7. *Built* means in the repository and tested; *planned* means designed here or in the plan, which is true of every perception item today.
+> **Status (2026-11-13): design only. Nothing in this document is built.** The robot is still revision B (a lidar and an IMU, no cameras). Phase 2 (the warehouse world) is done, and Phase 3 (navigation) has begun. Cameras arrive with revision E in Phase 7. *Built* means in the repository and tested; *planned* means designed here or in the plan, which is true of every perception item today.
 >
 > **Scope:** how the robot will see tags and totes: the cameras (Phase 7), the ArUco fiducial method (Phases 7-8, milestone M2), the optional learned tote detector (Phase 8b), and how both feed one inventory.
 >
@@ -10,7 +10,7 @@
 >
 > **How it was made:** from the ArUco research and its skeptical review (both 2026-11-06), the learned-perception report [research/ML_PERCEPTION.md](research/ML_PERCEPTION.md) (already reviewed and corrected), [PROJECT_PLAN.md](PROJECT_PLAN.md) and the Phase 2 layout code, then checked by two more reviewers. Every claim the reviews refuted is corrected here; §9.2 lists them. All geometry was recomputed from `layout.yaml` and `robot.yaml`.
 >
-> **Related files:** [PROJECT_PLAN.md](PROJECT_PLAN.md) (D23, D24, Phases 5, 7, 8, 8b), [PROJECT_STATUS.md](PROJECT_STATUS.md), [layout.yaml](../src/warehouse_layout/config/layout.yaml) and the [warehouse_layout README](../src/warehouse_layout/README.md) (both on the Phase 2 branch, not merged yet), [robot.yaml](../src/warehouse_description/config/robot.yaml).
+> **Related files:** [PROJECT_PLAN.md](PROJECT_PLAN.md) (D23, D24, Phases 5, 7, 8, 8b), [PROJECT_STATUS.md](PROJECT_STATUS.md), [layout.yaml](../src/warehouse_layout/config/layout.yaml) and the [warehouse_layout README](../src/warehouse_layout/README.md), [robot.yaml](../src/warehouse_description/config/robot.yaml).
 
 **Evidence labels.** Numbers carry a label: **[V]** verified in source code or documentation, **[M]** measured in a named experiment (synthetic images so far, no Gazebo renders), **[C]** computed from stated inputs, **[E]** estimate, **[I]** inference from theory, still to be measured, **[U]** unverified. §10.3 explains them and lists the experiments. Codes from the plan, such as D23 (a decision), R7 (a risk) or P7.3 (a work item), are explained in §10.2.
 
@@ -125,9 +125,9 @@ flowchart LR
 
 ### 1.5 Status and timeline
 
-| Phase | Perception work | Plan effort | Estimate here | Status (2026-11-06) |
+| Phase | Perception work | Plan effort | Estimate here | Status (2026-11-13) |
 |---|---|---|---|---|
-| 2 | The layout facts perception depends on: tag heights, slot IDs, tote ID = tag ID, aisle width, bare shelves | M-L | (no change) | In progress (branch `phase-2-warehouse-world`) |
+| 2 | The layout facts perception depends on: tag heights, slot IDs, tote ID = tag ID, aisle width, bare shelves | M-L | (no change) | Done (2026-11-08, on `main`) |
 | 5 | Dock model with its tag board, tilted 20° and still blank (Phase 7 prints the tag on it); docking on the database pose | L | under 1 h extra for the tilted board [E] | Planned |
 | 7 | Rev E cameras, tags in the world, `aruco_detector`, docking on the detected tag | L (20-35 h) | 38-62 h core [E] | Planned |
 | 8 | `slot_projector`, `inventory_manager`, `SCAN_AISLE`, scenario generator, dashboard page, release v2.0.0 | L (20-35 h) | 37-57 h core [E] | Planned |

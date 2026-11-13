@@ -375,8 +375,9 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
   RViz's "2D Pose Estimate", from `drive_route --initial-pose-offset`). The pose is a few
   milliseconds newer than the EKF's latest transform, so AMCL adds no motion since then; the robot
   stands still, so that is right.
-- At every Ctrl-C, launch logs `[ERROR] [launch]: Caught exception in launch (see debug for
-  traceback): Cannot shutdown a ROS adapter that is not running`. Every process still stops.
+- At some Ctrl-Cs, not at every one, launch logs `[ERROR] [launch]: Caught exception in launch
+  (see debug for traceback): Cannot shutdown a ROS adapter that is not running`. Every process
+  still stops.
 - Now and then Gazebo ignores the SIGINT and launch escalates (`failed to terminate '5' seconds
   after receiving 'SIGINT', escalating to 'SIGTERM'`, then `'SIGKILL'`): the upstream shutdown
   hang described in the warehouse_gazebo README. Launch still stops everything.

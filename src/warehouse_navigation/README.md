@@ -125,8 +125,9 @@ to *configure* (read parameters, create publishers) and then to *activate* (star
   the bond topic is relative too (`/robot1/bond`), so each manager stays within its scope.
 
 Measured without Gazebo (wall time, 2026-11-06): slam_toolbox active 0.7 s after the launch
-started, `map_server` 0.6 s, AMCL 0.8 s. In Gazebo (sim time, 2026-11-07 and 2026-11-08):
-slam_toolbox 1.5-1.7 s, `map_server` 1.5-1.7 s, AMCL 2.4-4.9 s.
+started, `map_server` 0.6 s, AMCL 0.8 s. In Gazebo (2026-11-07 and 2026-11-08; wall clock,
+polled with `ros2 lifecycle get`, so the tool's own start-up is included): slam_toolbox
+1.5-1.7 s, `map_server` 1.5-1.7 s, AMCL 2.4-4.9 s.
 
 ### slam_toolbox: what changed and why
 

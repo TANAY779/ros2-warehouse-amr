@@ -1,6 +1,6 @@
 # Warehouse AMR System: Project Plan
 
-> **Version 2, 2026-11-03.** Status: **M0 done** (Phase 0 delivered, decisions in [decisions/](decisions/); tag `phase-0` pending until this revision merges). Phases 1 and 2 are built and verified (see [PROJECT_STATUS.md](PROJECT_STATUS.md)); Phase 3 is next.
+> **Version 2, 2026-11-03; updated 2026-11-13.** Status: **M0 done** (Phase 0 delivered, decisions in [decisions/](decisions/)). Phases 0-2 are done (tags `phase-0`, `phase-1`, `phase-2`; see [PROJECT_STATUS.md](PROJECT_STATUS.md)), and Phase 3a, the first of Phase 3's two parts, is in progress.
 > Target: ROS 2 **Jazzy**, Gazebo **Harmonic** (gz-sim 8.15 via `ros_gz` 1.0.24), Nav2 1.3.13, BehaviorTree.CPP 4.10, ros2_control 4.48 / ros2_controllers 4.42.1 / `gz_ros2_control` 1.2.20, OpenCV 4.6 (contrib). Versions checked against `/opt/ros/jazzy` on 2026-11-02 and 2026-11-03.
 
 > **Note, 2026-11-07:** the project no longer has automated tests, lint checks or CI, and every
@@ -18,7 +18,7 @@
 2. Phases: Phase 4 is split into 4a (interfaces + BT executor), 4b (orders + KPIs) and 4c (operator dashboard v1). Later phases add dashboard slices, and P12 stays lean.
 3. Operator UI: our own Flask dashboard (backend-for-frontend, SSE, LAN testing) replaces v1's third-party web viewer and browser-side ROS bridge. Deployment is a post-project backlog (§10).
 4. Perception: ArUco first (P7-8) with on-demand cameras, IPPE disambiguation and target-dock detection. Learned detection is an optional Phase 8b; its research is paused.
-5. Process: Phase 0 is delivered (ADR-001..004). `phase-N` marker tags, releases only at v1.0.0, v2.0.0 and v3.0.0. Efforts re-estimated: about 243-417 h for M1-M3.
+5. Process: Phase 0 is delivered (ADR-001..004; ADR-005..008 followed during Phases 1 and 2). `phase-N` marker tags, releases only at v1.0.0, v2.0.0 and v3.0.0. Efforts re-estimated: about 243-417 h for M1-M3.
 
 ---
 
@@ -627,7 +627,7 @@ M1 to M3 total about 243-417 h. Plan with the upper half: M1 about 190-236 h (ro
 ## 8. Portfolio deliverables
 
 - **README:** elevator pitch, a 20 s hero GIF, the architecture diagram, a feature matrix per milestone, quick start (dev container, then 3 commands), dashboard screenshots (desktop and phone), KPI table, and a "What I'd do on real hardware" section (4-caster suspension, real safety scanners, a future `warehouse_hardware` `SystemInterface`).
-- **docs/architecture.md:** §2 of this plan, kept current. **docs/decisions/:** ADR-001..005 now, then one ADR per decision row as its phase lands. **docs/phase-reports/:** one learning report per phase (what was built, concepts, what broke and how it was fixed).
+- **docs/architecture.md:** §2 of this plan, kept current. **docs/decisions/:** ADR-001..008 now, then one ADR per decision row as its phase lands. **docs/phase-reports/:** one learning report per phase (what was built, concepts, what broke and how it was fixed).
 - **Media:** a GIF or video per phase from P1; narrated videos at v1.0.0 (P6), v2.0.0 (P8) and v3.0.0 (P12) as MP4s on the GitHub Releases.
 - **Evidence:** CI badges, a coverage badge, benchmark tables (RPP vs MPPI, greedy vs auction, 1 vs 3 robots, ArUco pixel size vs pose error), the robot design table with its prototype measurements, and a sample KPI report.
 - **Showcase scenario:** Phase 12, reproducible from a single command. Optional 8b adds a model card and a sim → Colab → ONNX → ROS pipeline diagram.

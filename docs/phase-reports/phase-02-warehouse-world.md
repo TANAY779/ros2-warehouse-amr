@@ -457,9 +457,9 @@ later, and they still get the map because they subscribe transient local
 Two surprises came out of the measurements. A *paused* map server (`inactive`) still hands the map
 to a new transient-local subscriber: deactivating stops new publishing, but the DDS writer keeps
 the message it already holds. And the same rules bit the bag recorder: `/robot1/tf_static` is
-transient local and sent once, and a `ros2 bag record` that subscribed to it before the publisher
-existed (`--include-unpublished-topics`) subscribed volatile and recorded none of it
-([problem 11](#11-a-bag-without-tf_static)).
+transient local and sent once, and a `ros2 bag record` that subscribed to it before it had
+discovered the publisher (`--include-unpublished-topics`) subscribed volatile and recorded none
+of it ([problem 11](#11-a-bag-without-tf_static)).
 
 **Why industry does it.** "Latched" data (maps, the robot description, static transforms,
 configuration) must reach nodes that start in any order or restart later. Transient local makes
@@ -896,9 +896,12 @@ Each story is told as symptom → cause → fix → lesson.
 #### 11. A bag without tf_static
 
 - *Symptom:* the bag of the first acceptance run held 0 messages on `/robot1/tf_static`.
-- *Cause:* the recorder ran with `--include-unpublished-topics` and subscribed before
-  `robot_state_publisher` existed, with the default, volatile QoS. `tf_static` is sent once,
-  transient local, and a volatile subscriber gets no history (concept 8).
+- *Cause:* the recorder ran with `--include-unpublished-topics`, which subscribes at once to a
+  listed topic even before it has discovered the topic's publisher. It started 8 s after the
+  launch, yet subscribed to `/robot1/tf_static` before it had discovered
+  `robot_state_publisher`'s publisher, so it took the default, volatile QoS (the bag's metadata
+  lists no publisher QoS for the topic). `tf_static` is sent once, transient local, and a
+  volatile subscriber gets no history (concept 8).
 - *Fix:* start the recorder after the launch, without `--include-unpublished-topics`, so it takes
   the publisher's QoS (the recorder of [exercise 8](#exercise-8-measure-localization-from-a-bag)
   does, and its bag got its 1 `tf_static` message), or pin the topic's QoS with
@@ -947,8 +950,11 @@ Each story is told as symptom → cause → fix → lesson.
 - *What is known:* every run starts exactly at the origin (ground truth (0, 0), the EKF (0, 0) at
   the first scan, the first `map -> odom` the identity), so the shift builds up while mapping.
   slam_toolbox's own pose is 0.3-2 cm off while driving east and 7-8 cm while driving west.
-  `check_map`'s measuring from cell centres explains only an estimated 0.009-0.017 m. AMCL on the
-  map shows no such bias: its mean error was (+0.002, -0.009) m in both acceptance runs.
+  `check_map`'s measuring from cell centres accounts for 0.022 m, measured on the committed map's
+  grid: an ideal map with the layout's faces in the same cells is moved by (-0.014, +0.016) m.
+  That explains most of the x part, but in y it points the other way, so none of the southward
+  shift. AMCL on the map shows no such bias: its mean error was (+0.002, -0.009) m in both
+  acceptance runs.
 - *Status:* open. Leads for Phase 3: compare the Gazebo lidar's ray origin and angles with TF, and
   the EKF's lag on straight segments.
 - *Lesson:* report a thin margin as what it is, with the runs that failed, rather than keep the
@@ -964,7 +970,8 @@ Each story is told as symptom → cause → fix → lesson.
   ([Phase 1](phase-01-robot-description.md#things-that-look-wrong-but-are-not)). With `-v` its
   durability reads `TRANSIENT_LOCAL`: it uses the system default QoS, which Fast DDS makes
   transient local for a writer.
-- At every Ctrl-C of a launch: `[ERROR] [launch]: Caught exception in launch (see debug for
+- At some Ctrl-Cs of a launch, not at every one (once in the 38 launches recorded in this
+  phase): `[ERROR] [launch]: Caught exception in launch (see debug for
   traceback): Cannot shutdown a ROS adapter that is not running`. Every process still stops,
   within 1-2 s.
 - `process has died [... exit code -2 ...]` for some nodes after Ctrl-C: they received SIGINT
@@ -983,6 +990,11 @@ Each story is told as symptom → cause → fix → lesson.
 - `view_frames` names every broadcaster `default_authority` (concept 10).
 - `diff_drive_controller` logs `Velocity command timed out. Braking.` once per second whenever no
   command arrives, before and after every drive.
+- `[ERROR] [robot1.ekf_filter_node]: Failed to meet update rate! Took 0.0359...seconds ...` when
+  a new DDS participant joins, for example as drive_route starts: the EKF missed one of its 50 Hz
+  updates, the same effect as the odometry pauses of
+  [problem 6](#6-another-simulation-and-every-command-line-tool-paused-the-wheel-odometry). It
+  is harmless.
 - RViz logs a GLSL message for the Map display on this laptop's Intel GPU ("active samplers with
   a different type refer to the same texture image unit"); the map is drawn correctly.
 - `ros2 lifecycle get` right after a launch may answer `Node not found`: discovery has not
@@ -1014,7 +1026,9 @@ Phase 2 acceptance as reworded on 2026-11-08 for local runs (the limits unchange
 The Phase 2 plan's localization checks, measured too:
 
 - Lifecycle nodes active within 10 s of the launch: `map_server` after 1.5-1.7 s, AMCL after
-  2.4-4.9 s, slam_toolbox after 1.5-1.7 s.
+  2.4-4.9 s, slam_toolbox after 1.5-1.7 s. These are wall-clock times from polling with
+  `ros2 lifecycle get`, so they include starting the command-line tool; the lifecycle managers
+  themselves logged `Managed nodes are active` 0.6-0.9 s after the launch.
 - `map -> odom` only from AMCL, and only on `/robot1/tf`: the publishers of `/robot1/tf` were
   `robot_state_publisher`, `ekf_filter_node` and `amcl`; `/tf` carried 0 messages in 10 s.
 - Before the robot moves, AMCL within 0.05 m of ground truth: 0.0000 m and 0.000°.
@@ -1586,8 +1600,9 @@ The problem stories above each end with their lesson. These are the everyday pit
   namespace, relative sensor topics, the absolute `/map`, frames that match the EKF's. ROS
   ignores a parameter that matches nothing, without a word. Read the values back from the running
   node with `ros2 param get`.
-- **Late subscribers need transient local on both ends.** A recorder started before its
-  publishers subscribes volatile and misses `tf_static`; start it after the launch.
+- **Late subscribers need transient local on both ends.** A recorder that subscribes before it
+  has discovered a publisher (started before the launch, or with `--include-unpublished-topics`)
+  subscribes volatile and misses `tf_static`; start it after the launch, without that flag.
 - **One simulation at a time, and no new `ros2` tools during a measured drive.** Start the
   recorder and every check before `drive_route`.
 - **Turn slowly while mapping**: 0.2 rad/s for the survey, C four times in the teleop window.
@@ -1707,7 +1722,8 @@ Carried over from Phase 2, open:
 - The pauses of the wheel odometry when a DDS participant starts (problem 6), before Phase 9 runs
   three robots and their tools.
 - drive_route prints a traceback when a second SIGINT arrives while it stops the robot (the first
-  stop command has already gone out); a one-line fix.
+  stop command has already gone out); a one-line fix. Fixed at the start of Phase 3a: the second
+  Ctrl-C is now ignored.
 - Python nodes on sim time handle 1000 `/clock` messages a second (drive_route about 0.4 of a
   core); with three robots that adds up.
 - The owner's teleop map ([exercise 6](#exercise-6-your-own-map-by-teleop)) and the tags

@@ -71,6 +71,13 @@ map_saver_cli warns "Free threshold unspecified" and saves with its defaults, oc
 free 0.25. That is expected. The YAML it writes says `free_thresh: 0.196`, so that the grey
 unknown cells (205) load back as unknown, not as free.
 
+`--include-unpublished-topics` in step 3 has a price: the recorder subscribes at once, with
+volatile QoS, to a listed topic whose publisher it has not discovered yet. Such a subscription
+gets nothing of `/robot1/tf_static`, which `robot_state_publisher` sends once, transient local.
+The three mapping bags below got their message, but a localization bag recorded the same way
+did not ([Phase 2 report, problem 11](../../../docs/phase-reports/phase-02-warehouse-world.md#11-a-bag-without-tf_static)).
+The map, `check_map` and the GIF do not need `tf_static`.
+
 Four things matter, each seen in these runs or in the earlier attempt below:
 
 - **Turn slowly.** The EKF's `odom -> base_footprint` lags ground truth by about 19 ms (the

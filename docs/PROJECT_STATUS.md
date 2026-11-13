@@ -19,18 +19,22 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 
 ## At a glance
 
-- **Current phase (as of 2026-11-08):** Phase 2 (warehouse world, mapping, localization) is
+- **Current phase (as of 2026-11-13):** Phase 3a (Nav2 navigation) is **in progress**, at its
+  first stage, S0: the leftovers of the Phase 2 review. Phase 3 (navigation with keep-out and
+  speed zones, safety) is planned in two parts, each with its own learning report, ADR, GIF and
+  tag: Phase 3a, Nav2 navigation (stages S0-S5), then Phase 3b, warehouse rules, safety and robot
+  revision C (stages S6a-S11). Phase 2 (warehouse world, mapping, localization) is
   **done**: the warehouse generated from one layout file (merged 2026-11-06), the SLAM map made
   on a scripted survey route (2026-11-07) and AMCL localization on it (2026-11-08), with
   [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md), the
-  [learning report](phase-reports/phase-02-warehouse-world.md) and the mapping GIF. Phase 3
-  (navigation with keep-out and speed zones, safety) is next. Phase 1 (robot description and
-  first drive in Gazebo) is **done and merged** into `main` (pull request #2, 2026-11-05),
-  including the owner's design review: a 360° lidar puck on the deck and a new look. Its
-  [learning report](phase-reports/phase-01-robot-description.md) is written. Still open: the
-  Phase 1 demo GIF (recorded by the maintainer, Phase 1 report exercise 7), the owner's own
-  teleop map (Phase 2 report exercise 6), and the tags `phase-1` and `phase-2`.
-- **Last updated:** 2026-11-08
+  [learning report](phase-reports/phase-02-warehouse-world.md) and the mapping GIF. Phase 1
+  (robot description and first drive in Gazebo) is **done and merged** into `main` (pull
+  request #2, 2026-11-05), including the owner's design review: a 360° lidar puck on the deck
+  and a new look. Its [learning report](phase-reports/phase-01-robot-description.md) is
+  written. Phases 0, 1 and 2 carry the tags `phase-0`, `phase-1` and `phase-2`. Still open: the
+  Phase 1 demo GIF (recorded by the maintainer, Phase 1 report exercise 7) and the owner's own
+  teleop map (Phase 2 report exercise 6).
+- **Last updated:** 2026-11-13
 - **What runs today** (on `main`): our own robot (revision B, safety yellow and
   charcoal) drives by keyboard (the teleop window) through ros2_control, in an empty Gazebo world or in the
   generated 30 x 20 m warehouse (`world:=warehouse`), inside the `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
@@ -51,10 +55,11 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 
 | Milestone | Phase | Scope | Status |
 |---|---|---|---|
-| M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` not yet created (as of 2026-11-04); its CI and lint gates removed on 2026-11-07 (ADR-008) |
-| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); demo GIF and tag `phase-1` pending |
-| | 2 | Warehouse world generated from a layout file, mapping, localization | **done** 2026-11-08 ([report](phase-reports/phase-02-warehouse-world.md)); tag `phase-2` not yet created |
-| | 3 | Navigation with keep-out and speed zones, safety | planned |
+| M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` (annotated, on 73820c9, 2026-11-05, also on `origin`); its CI and lint gates removed on 2026-11-07 (ADR-008) |
+| M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); tag `phase-1` on 14cb789, the merge of pull request #2; demo GIF pending |
+| | 2 | Warehouse world generated from a layout file, mapping, localization | **done** 2026-11-08 ([report](phase-reports/phase-02-warehouse-world.md)); tag `phase-2` on 7da18a4 |
+| | 3a | Nav2 navigation: Nav2 per robot, a command line for named locations, a navigation benchmark, the physics step, teleop and Nav2 through `twist_mux` with a manual mode | **in progress** (stage S0 of S0-S5, since 2026-11-13) |
+| | 3b | Warehouse rules, safety and robot revision C: keep-out and speed zones, safety fields, two low corner lidars | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
 | | 4c | Operator dashboard v1 (Flask): overview, orders, live map, live updates | planned |
@@ -70,7 +75,8 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 | Stretch | 13 | Mobile manipulation | stretch |
 
 This table follows [PROJECT_PLAN.md](PROJECT_PLAN.md) (version 2), which holds each phase's
-scope and acceptance criteria.
+scope and acceptance criteria; its §5 describes Phase 3 as one phase until Phase 3a's documents
+divide it.
 
 ## Features
 
@@ -513,6 +519,15 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-08 | AMCL tuned on the evaluation: `max_beams` 60 → 240 and `alpha1`-`alpha4` 0.2 → 0.02, chosen one parameter at a time by replaying recorded drives through AMCL (the replay reproduced the live run's 464 poses exactly) | With Nav2's sample values the particle cloud stayed 0.15-0.45 m wide and the error wandered up to 0.26 m: the simulated odometry drifts only about 0.03 % of the distance driven. Two live survey drives with the tuned values passed every check (converged after 0.78 and 1.22 m, then within 0.092 and 0.090 m for 7 minutes). A real robot needs larger values, from its measured odometry error | adopted | [warehouse_navigation](../src/warehouse_navigation/README.md#amcl-what-changed-and-why) |
 | 2026-11-08 | Long simulation runs on mains power with the lid open, under `systemd-inhibit --what=idle:sleep`; a run with a suspend in it does not count | The laptop suspends after 15 minutes idle on battery and when the lid closes; a suspend froze the first AMCL acceptance drive after 288 s | adopted | [Phase 2 report](phase-reports/phase-02-warehouse-world.md) |
 | 2026-11-08 | Phase 2 done. Its acceptance is reworded for local runs (plan §9 and ADR-008: `generate --check` and `preview` replace the tests; the map, AMCL and IMU limits are unchanged) and met. [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md) records the layout decision; the learning report and the mapping GIF (0.18 MB, made by `map_timelapse` from the mapping bag) are written | Every criterion is measured with the tools; the report teaches the phase with exercises run against the real system | done | [Phase 2 report](phase-reports/phase-02-warehouse-world.md) |
+| 2026-11-12 | Phase 3 in two parts, each closed by its own acceptance runs, learning report, ADR, GIF and tag: **Phase 3a, Nav2 navigation** (stages S0-S5, about 42 h; ADR-009, tag `phase-3a`), then **Phase 3b, warehouse rules, safety and robot revision C** (stages S6a-S11, about 31.5 h; ADR-010, tag `phase-3b`). The written acceptance is divided between them: the goal runs without zones, the command age and the physics step in 3a; zones, speed caps, safety fields and the goal runs with zones in 3b | The owner's answer to question Q6 of the Phase 3 plan (option b). Two finished, tagged parts of about 40 h each instead of one of about 75 h, and each report is written while its work is fresh; the split costs about 4.5 h | adopted | [Plan](PROJECT_PLAN.md), Phase 3 |
+| 2026-11-12 | Robot revision C: two low corner lidars at 0.17 m in a groove round the body, so the robot sees obstacles from 0.17 m up on every side. The tote on the tray, its self-filter (`laser_filters`), the loaded acceptance checks and the loaded AMCL margin move to Phase 4; Phase 3 installs no new package | Q1 (C). The puck's scan plane at 0.34 m passes over low obstacles; the corner pair covers every side, as diagonal safety scanners do on industrial AMRs. The tote waits for Phase 4, which carries totes, and nothing needs sudo now | planned (Phase 3b) | [Plan](PROJECT_PLAN.md) §2.6 (Rev C) |
+| 2026-11-12 | Teleop and Nav2 share the robot through `twist_mux`, in front of the collision monitor: teleop (priority 100) overrides Nav2 (priority 10), and both pass the same safety fields. While navigation runs, the teleop window drives in a manual mode capped at 0.3 m/s, and it never reverses faster than 0.3 m/s, the base's limit | Q2 (b). Commercial AMRs are driven by hand in a reduced-speed mode with their safety fields active; 0.3 m/s is the lowest zone cap, so manual driving keeps every zone's limit. The price: while Nav2's collision monitor is inactive, teleop does nothing (an unprotected bypass will be documented) | planned (Phase 3a) | [Plan](PROJECT_PLAN.md) §2.6 |
+| 2026-11-12 | Keep-out zones as two masks that nest: for the planner, a lethal core 0.65 m round each zone with a 0.30 m cost ramp beyond it; for the controller, each zone grown by 0.10 m; the dock-bar boxes in both. The six filter servers run once, in the system scope, under their own lifecycle manager, apart from the map's; this amends plan D20 and D22 | Q3 (a). Paths keep off the core, so tracking error does not cost goals, while the controller's footprint check still stops the robot at a zone; a failing filter server must not reset the map that AMCL uses | planned (Phase 3b) | [Plan](PROJECT_PLAN.md) D20, D22 |
+| 2026-11-12 | No checker tool for Phase 3's configuration: each stage reads the running system back by hand (`ros2 param get`, `ros2 topic info -v`, `ros2 lifecycle get`, `ros2 topic echo`), from a list the `warehouse_navigation` README will keep. `masks --report` stays, and the safety-field derivation is a printed table. On 2026-11-13 the owner accepted the sha256 of the mask cells that `masks --report` prints as the by-hand check of the masks | Q4 (c), and ADR-008: a change is checked by running the system. The price: a costmap left on silent defaults is caught only if the stage runs its checks | adopted | [ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md) |
+| 2026-11-12 | Phase 3 settles the physics step for Phase 9: Phase 3a measures 1, 2 and 5 ms steps and adopts the largest that passes; every comparison in Phase 3 uses three drives per condition | Q5 (a). Three robots with Nav2 run at a real-time factor of 0.59-0.68 at today's 1 ms step; one drive's largest AMCL error varies by about 37 mm, so one run per condition decides nothing | planned (Phase 3a) | [PC assessment](research/PC_ASSESSMENT.md), plan R3 |
+| 2026-11-12 | The safety fields are sized for a reaction time of 0.25 s instead of the 0.2 s of plan §2.6 | The collision monitor waits 10-40 ms per command for the odometry transform, which 0.2 s left out; the fields grow by 1-5 cm, so they become more conservative | planned (Phase 3b) | [Plan](PROJECT_PLAN.md) §2.6 |
+| 2026-11-13 | Tags `phase-1` on 14cb789 (the merge of pull request #2, 2026-11-05) and `phase-2` on 7da18a4 (Phase 2's documents, 2026-11-08), annotated like `phase-0` (on 73820c9) | CONTRIBUTING.md: a `phase-N` marker tag per finished phase. The owner chose the merge commit for Phase 1; the alternative was 2e487b6, the status commit that marked it merged | done | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| 2026-11-13 | Phase 3a starts with stage S0, the Phase 2 leftovers: six wording fixes from the Phase 2 review (why a bag missed `tf_static`, the cell-centre share of the map offset, how often launch's shutdown error appears, the clock of the start-up times, the EKF's missed update when a tool joins, `PERCEPTION.md`'s status); `drive_route` keeps only its newest command (depth 1), names a subscription whose QoS can never match its publisher, acts on Ctrl-C only between its callbacks (a Ctrl-C inside rclpy could end it with a traceback and no stop command) and ignores a second Ctrl-C while it stops the robot; the plan's header and ADR lists brought up to date | The Phase 2 review's nine low findings, closed before the Nav2 work begins | done | [warehouse_system_tests](../src/warehouse_system_tests/README.md#drive_route) |
 
 ## Planned features
 
@@ -521,7 +536,8 @@ Short list per milestone; details and acceptance criteria are in the plan. All *
 - **M1 Core AMR (`v1.0.0`)**
   - Phase 1's demo GIF: teleop with the RViz sensor view, recorded by the maintainer (steps in
     [exercise 7 of the Phase 1 report](phase-reports/phase-01-robot-description.md#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
-  - Nav2 navigation with keep-out and speed zones and a collision monitor (Phase 3).
+  - Nav2 navigation (Phase 3a); keep-out and speed zones, a collision monitor and robot
+    revision C (Phase 3b).
   - Custom interfaces and a behaviour-tree task executor (Phase 4a).
   - Order manager, order generator and KPI tracking (Phase 4b).
   - Operator dashboard v1, our own Flask web app: overview, orders, live map, live updates
