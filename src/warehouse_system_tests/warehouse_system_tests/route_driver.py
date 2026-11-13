@@ -69,7 +69,7 @@ Exit codes: 0 the route was driven (or there was nothing to drive); 1 it could n
 ground truth, AMCL not active or not answering the initial pose, diff_drive_controller not
 receiving the commands, the robot not at the start of the route, no progress for 10 s, or the
 simulation clock stopped); 2 a bad argument; 130 stopped by Ctrl-C. The robot is commanded to
-stop before every exit.
+stop before every exit; a second Ctrl-C while it stops is ignored.
 """
 
 import argparse
@@ -78,6 +78,7 @@ import math
 import os
 import signal
 import sys
+import threading
 import time
 
 from ament_index_python.packages import get_package_share_directory
@@ -87,9 +88,14 @@ from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import Odometry
 import rclpy
+from rclpy.clock import Clock
+from rclpy.clock import ClockType
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import DurabilityPolicy
+from rclpy.qos import qos_check_compatible
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSCompatibility
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
@@ -99,6 +105,14 @@ import yaml
 
 COMMAND_RATE = 20.0              # Hz: commands while driving
 COMMAND_PERIOD = 1.0 / COMMAND_RATE
+# QoS of the commands: the command velocity profile of the ROS 2 skill's QoS table (reliable,
+# volatile, keep last 1). Only the newest command is kept: a queued old command is worse than a
+# lost one, and a reliable subscription that matches late (a bag recorder, for one) is sent
+# what the publisher still holds. The table's 100 ms deadline and 200 ms lifespan are left out:
+# DDS measures them on the wall clock, while the controller already ignores a command whose
+# sim-time stamp is older than cmd_vel_timeout.
+COMMAND_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                         durability=DurabilityPolicy.VOLATILE)
 CONTROLLER = 'diff_drive_controller'   # subscribes to cmd_vel (controllers.yaml)
 DEFAULT_SPEED = 0.4              # m/s (the mapping run, plan F5)
 DEFAULT_TURN_RATE = 0.5          # rad/s: slow turns keep scan matching easy for SLAM
@@ -137,6 +151,7 @@ CONTROLLER_TIMEOUT = 30.0        # for diff_drive_controller to receive the comm
 # RouteDriver.wait_for_controller).
 DISCOVERY_SETTLE = 3.0           # s
 STALE_POSE = 0.5                 # s of sim time: older ground truth is not used to steer
+INTERRUPT_CHECK = 0.05           # s: how often a Ctrl-C noted by _interrupt is acted on
 
 # The initial pose for AMCL: how unsure it is (standard deviations), plan F7.
 INITIAL_POSE_SIGMA_XY = 0.5      # m
@@ -501,6 +516,34 @@ def pose_text(pose):
     return f'({pose.x:.2f}, {pose.y:.2f}, {math.degrees(pose.yaw):.1f} deg)'
 
 
+def qos_text(profile):
+    """Return a QoS profile as text, for example 'reliable, volatile, keep last 1'."""
+    reliability, durability, history = (
+        policy.name.lower().replace('_', ' ')
+        for policy in (profile.reliability, profile.durability, profile.history))
+    return f'{reliability}, {durability}, {history} {profile.depth}'
+
+
+def node_path(endpoint):
+    """Return the full name of the node behind a topic endpoint, for example '/robot1/amcl'."""
+    return f"{endpoint.node_namespace.rstrip('/')}/{endpoint.node_name}"
+
+
+def incompatibility(publisher_qos, subscription_qos):
+    """
+    Return why a subscription can never match a publisher, or '' if their QoS allows it.
+
+    For example 'volatile publisher and transient local subscription'.
+    """
+    compatibility, reason = qos_check_compatible(publisher_qos, subscription_qos)
+    if compatibility != QoSCompatibility.ERROR:
+        return ''
+    # rmw words each problem as 'ERROR: Volatile publisher and transient local subscription;'
+    # (and a WARNING for a policy it cannot judge).
+    return '; '.join(part.strip()[len('ERROR:'):].strip().lower()
+                     for part in reason.split(';') if part.strip().startswith('ERROR:'))
+
+
 class RouteDriver(Node):
     """The ROS side of drive_route: ground truth in, stamped commands and the initial pose out."""
 
@@ -514,15 +557,26 @@ class RouteDriver(Node):
         # also matches the bridge's reliable publisher.
         self.create_subscription(Odometry, 'ground_truth/odom', self._on_truth,
                                  qos_profile_sensor_data)
-        self.cmd_vel = self.create_publisher(TwistStamped, 'cmd_vel', 10)
+        self.cmd_vel = self.create_publisher(TwistStamped, 'cmd_vel', COMMAND_QOS)
         self._cmd_vel_created = time.monotonic()
         self.cmd_vel_timeout = cmd_vel_timeout    # s, for the log
         self.follower = None
         self._driven = 0.0           # metres, for the summary
         self._previous = None
+        # Ctrl-C and SIGTERM are noted by the signal handler and acted on here, between
+        # callbacks (see _interrupt). Every wait of the driver spins this node, so the check runs
+        # wherever the driver is; on the steady clock, it runs even when sim time stops.
+        self._interrupt_check = self.create_timer(
+            INTERRUPT_CHECK, self._on_interrupt_check,
+            clock=Clock(clock_type=ClockType.STEADY_TIME))
 
     def _on_truth(self, message):
         self.truth = message
+
+    def _on_interrupt_check(self):
+        if _interrupted.is_set():
+            self._interrupt_check.cancel()
+            raise KeyboardInterrupt
 
     def now_s(self):
         """Return the node's time (sim time) in seconds."""
@@ -544,6 +598,7 @@ class RouteDriver(Node):
 
     def stop(self):
         """Command a stop, and give the middleware a moment to deliver it."""
+        self._interrupt_check.cancel()   # stopping already: a Ctrl-C must not cut this short
         self.publish_command(0.0, 0.0)
         rh.spin_for(self, 0.1)
         self.publish_command(0.0, 0.0)
@@ -602,6 +657,11 @@ class RouteDriver(Node):
         subscription and the publisher is matched with every subscription listed. The
         subscription's end cannot be checked from here, so this then waits, still processing
         callbacks, until the publisher is DISCOVERY_SETTLE seconds old.
+
+        A subscription whose QoS does not fit the publisher's is never matched: for example
+        ``ros2 topic echo cmd_vel --qos-durability transient_local`` asks for old messages
+        that a volatile publisher does not keep. The wait then gives up after
+        CONTROLLER_TIMEOUT, and the error names that subscription (see _wait_error).
         """
         topic = self.cmd_vel.topic_name
         started = time.monotonic()
@@ -612,14 +672,39 @@ class RouteDriver(Node):
                     and self.cmd_vel.get_subscription_count() >= len(listed))
 
         if not rh.spin_until(self, matched, CONTROLLER_TIMEOUT):
-            raise DriveError(
-                f'{CONTROLLER} does not receive {topic} after {CONTROLLER_TIMEOUT:g} s '
-                f'({self.cmd_vel.get_subscription_count()} of {self.count_subscribers(topic)} '
-                'subscriptions matched): is the controller active in this namespace?')
+            raise DriveError(self._wait_error(topic))
         rh.spin_for(self, DISCOVERY_SETTLE - (time.monotonic() - self._cmd_vel_created))
         self.get_logger().info(
             f'{CONTROLLER} receives {topic} ({self.cmd_vel.get_subscription_count()} '
             f'subscriptions matched; waited {time.monotonic() - started:.2f} s)')
+
+    def _wait_error(self, topic):
+        """Return why wait_for_controller gave up: which subscription did not match, and why."""
+        listed = self.get_subscriptions_info_by_topic(topic)
+        counts = (f'{self.cmd_vel.get_subscription_count()} of {len(listed)} subscriptions '
+                  f'matched after {CONTROLLER_TIMEOUT:g} s')
+        if not any(endpoint.node_name == CONTROLLER for endpoint in listed):
+            return (f'{CONTROLLER} does not receive {topic} ({counts}): is the controller active '
+                    'in this namespace?')
+        # The publisher cannot list the subscriptions it is matched with, only count them; but
+        # one whose QoS does not fit is certain never to match. Compare like with like: this
+        # publisher's QoS as discovery reports it. The requested profile leaves the deadline and
+        # the liveliness lease unset (0), which the check reads as "none" against the
+        # "infinite" that discovery reports for every subscription.
+        ours = [endpoint for endpoint in self.get_publishers_info_by_topic(topic)
+                if endpoint.node_name == self.get_name()
+                and endpoint.node_namespace == self.get_namespace()]
+        publisher_qos = ours[0].qos_profile if ours else self.cmd_vel.qos_profile
+        never = [f'{node_path(endpoint)} ({reason})' for endpoint in listed
+                 if (reason := incompatibility(publisher_qos, endpoint.qos_profile))]
+        if never:
+            return (f'{topic}: {counts}. Never matched, because their QoS does not fit this '
+                    f'publisher ({qos_text(self.cmd_vel.qos_profile)}): {", ".join(never)}. '
+                    'The driver waits for every subscription, so that a bag recorder gets the '
+                    'first commands too: stop that subscriber or change its QoS (compare with '
+                    f'"ros2 topic info -v {topic}")')
+        return (f'{topic}: {counts}: is every subscriber still running? '
+                f'"ros2 topic info -v {topic}" lists them with their QoS')
 
     def wait_for_amcl(self):
         """Wait until AMCL's lifecycle state is active (it ignores initial poses before)."""
@@ -714,10 +799,13 @@ class RouteDriver(Node):
         self.wait_for_controller()
         self.follower = RouteFollower(waypoints, limits)
         self._previous = start
+        # The QoS comes from the publisher itself: `ros2 topic info -v` cannot show the depth,
+        # because discovery does not carry the history setting (it prints UNKNOWN).
         self.get_logger().info(
             f'driving route {name}: {len(waypoints)} waypoints, {route_length(waypoints):.1f} m '
             f'at {limits.speed:g} m/s; commands on {self.cmd_vel.topic_name} at '
-            f'{COMMAND_RATE:g} Hz (cmd_vel_timeout {self.cmd_vel_timeout:g} s)')
+            f'{COMMAND_RATE:g} Hz, {qos_text(self.cmd_vel.qos_profile)} '
+            f'(cmd_vel_timeout {self.cmd_vel_timeout:g} s)')
         started_sim, started_wall = self.now_s(), time.monotonic()
         timer = self.create_timer(COMMAND_PERIOD, self._on_timer)
         try:
@@ -788,9 +876,24 @@ def _parser():
     return parser
 
 
+# Set by _interrupt, read by RouteDriver._on_interrupt_check.
+_interrupted = threading.Event()
+
+
 def _interrupt(signum, frame):
-    """Turn SIGTERM into KeyboardInterrupt, so that it stops the robot like Ctrl-C does."""
-    raise KeyboardInterrupt
+    """
+    Note the first SIGINT (Ctrl-C) or SIGTERM, and ignore any later one.
+
+    RouteDriver acts on the note within INTERRUPT_CHECK seconds: its timer raises
+    KeyboardInterrupt, which stops the robot. Raised here instead, at whatever line happens to
+    run, the exception can land inside rclpy's C++ code while that calls back into Python, and
+    rclpy then reports a RuntimeError: the driver ended with a traceback and sent no stop
+    command (once in four interrupted runs). Later signals are ignored, so that the stop always
+    finishes (it takes 0.2 s).
+    """
+    _interrupted.set()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
 
 def main(argv=None):
@@ -827,10 +930,11 @@ def main(argv=None):
             'offset': args.initial_pose_offset, 'timeout': controller['cmd_vel_timeout']}))
         return 0
 
-    # No rclpy signal handlers: Ctrl-C raises KeyboardInterrupt while the node can still
-    # publish, so the driver can stop the robot before it exits.
-    rclpy.init(args=argv, signal_handler_options=SignalHandlerOptions.NO)
+    # No rclpy signal handlers: Ctrl-C must leave the node able to publish, so the driver can
+    # stop the robot before it exits. _interrupt notes Ctrl-C and SIGTERM instead.
+    signal.signal(signal.SIGINT, _interrupt)
     signal.signal(signal.SIGTERM, _interrupt)
+    rclpy.init(args=argv, signal_handler_options=SignalHandlerOptions.NO)
     node = RouteDriver(f'/{namespace}', controller['cmd_vel_timeout'])
     try:
         node.run(args.route, waypoints, limits, args.settle, args.initial_pose_offset)

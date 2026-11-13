@@ -58,7 +58,11 @@ face along the next segment, then drives along it and stops on the next waypoint
 command is older than `cmd_vel_timeout` (`controllers.yaml`), and it measures that age from the
 command's header stamp, in sim time. So the driver publishes `TwistStamped` on
 `/robot1/cmd_vel` every 0.05 s while driving, also when the command does not change, stamped
-with the node's sim-time clock. A wall-clock stamp would be wrong in simulation (plan R1).
+with the node's sim-time clock. A wall-clock stamp would be wrong in simulation (plan R1). The
+publisher is reliable and keeps only the newest command (depth 1, the command velocity QoS of
+the ROS 2 engineering skill): a queued old command is worse than a lost one. The driver logs this
+QoS when it starts to drive, because `ros2 topic info -v` cannot show the depth: discovery does
+not carry the history setting, so it prints `History (Depth): UNKNOWN`.
 
 **The first command only once the controller listens.** DDS delivers messages only between a
 publisher and a subscription that discovery has matched, a fraction of a second after the
@@ -69,7 +73,10 @@ robot started late. So the driver waits until ROS lists `diff_drive_controller`'
 to `/robot1/cmd_vel` and its publisher is matched with every subscription listed (a count above
 zero is not enough: a bag recorder that records `/robot1/cmd_vel` may be matched first). The
 controller's end cannot be checked from the driver, so the first command also waits until the
-driver has run for 3 s (`DISCOVERY_SETTLE`).
+driver has run for 3 s (`DISCOVERY_SETTLE`). A subscription whose QoS does not fit the
+publisher's is never matched, for example `ros2 topic echo /robot1/cmd_vel --qos-durability
+transient_local` (it asks for old messages, which a volatile publisher does not keep): the
+driver then gives up after 30 s, and its error names that subscription and the reason.
 
 **The initial pose, the same way.** AMCL subscribes to `initialpose` best effort (the system
 default QoS), so a pose that reaches AMCL before its end of the match knows the publisher is
@@ -103,8 +110,9 @@ robot: that is what the timeout is for.
 smoke route 1 min 11-14 s at 0.5 m/s. Commands went out at 20.00 Hz, and in 13 logged drives the
 robot stopped 0.02-0.03 m from the last waypoint. AMCL answered the initial pose 0.07-0.13 s
 after it was sent. The driver uses about 0.4 of a CPU core: it is a Python node on sim time,
-and `/clock` ticks 1000 times a second. A second SIGINT while it is stopping the robot prints a
-traceback; the first stop command has already gone out by then.
+and `/clock` ticks 1000 times a second. The driver acts on Ctrl-C between its callbacks, within
+0.05 s, and ignores a second Ctrl-C while it is stopping the robot, so the stop (two zero
+commands over 0.2 s) always finishes.
 
 ### evaluate_localization
 
@@ -146,8 +154,9 @@ the EKF's drift.
 `amcl_pose` or ground truth, or the plot cannot be written.
 
 Start the recorder after the launch, as above: it then takes each publisher's QoS. A recorder
-that subscribes before a publisher exists (for example with `--include-unpublished-topics`) uses
-volatile QoS and records none of the one transient-local `tf_static` message. The evaluation does
+that subscribes before it has discovered the publisher (started before the launch, or with
+`--include-unpublished-topics`, even after it) uses volatile QoS and records none of the one
+transient-local `tf_static` message. The evaluation does
 not need `tf_static`, but a replay of the bag through AMCL does.
 
 **Measured** on the acceptance run of 2026-11-08 (the survey at 0.5 m/s after 30 s standing
