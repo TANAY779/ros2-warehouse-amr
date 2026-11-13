@@ -5,7 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
 # The Python package: the test tools behind the commands below (route_driver,
-# localization_eval, map_timelapse) and their helpers (ros_helpers, bags).
+# localization_eval, map_timelapse, measure_load) and their helpers (ros_helpers, bags).
 ament_python_install_package(${PROJECT_NAME})
 
 # Test tools, run with `ros2 run warehouse_system_tests <name>`: thin scripts that call the
@@ -14,6 +14,7 @@ install(PROGRAMS
   scripts/drive_route
   scripts/evaluate_localization
   scripts/map_timelapse
+  scripts/measure_load
   DESTINATION lib/${PROJECT_NAME}
 )
 

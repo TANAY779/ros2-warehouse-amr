@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_system_tests</name>
   <version>0.1.0</version>
-  <description>Simulation test tools of the warehouse AMR: drive_route drives a route of the location registry, evaluate_localization measures AMCL against ground truth from a bag, and map_timelapse turns a mapping bag into a GIF.</description>
+  <description>Simulation test tools of the warehouse AMR: drive_route drives a route of the location registry, evaluate_localization measures AMCL and odometry against ground truth from a bag, map_timelapse turns a mapping bag into a GIF, and measure_load samples the CPU, memory and Gazebo's real-time factor of a run.</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -33,6 +33,10 @@
   <exec_depend>sensor_msgs</exec_depend>
   <!-- The location registry (routes) and the [PASS] / [FAIL] lines (RuleResult) -->
   <exec_depend>warehouse_layout</exec_depend>
+  <!-- measure_load reads Gazebo's /world/<world>/stats through the gz-transport Python
+       bindings (gz.transport13, gz.msgs10), not through ROS -->
+  <exec_depend>gz_msgs_vendor</exec_depend>
+  <exec_depend>gz_transport_vendor</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

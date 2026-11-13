@@ -18,12 +18,13 @@ Evaluate localization from a bag: AMCL against ground truth, the EKF's drift, th
 Usage::
 
     ros2 run warehouse_system_tests evaluate_localization BAG [--namespace robot1]
-        [--plot OUT.png]
+        [--plot OUT.png] [--odometry]
 
 Record the bag while the robot drives with ``localization:=amcl`` (plan F7)::
 
     ros2 bag record -o bags/loc_run --use-sim-time --topics /robot1/amcl_pose \
-        /robot1/initialpose /robot1/ground_truth/odom /robot1/odom /robot1/imu /clock
+        /robot1/initialpose /robot1/ground_truth/odom /robot1/odom /robot1/odom/wheel \
+        /robot1/imu
 
 Every time below is a header stamp, in sim time. When a message was recorded plays no part:
 the recorder receives messages late, by varying amounts.
@@ -54,12 +55,23 @@ the recorder receives messages late, by varying amounts.
    (controllers.yaml) are compared with the measured sigma^2. 3000 samples give sigma within
    about 1.3 % (1 / sqrt(2 n)).
 
+7. **Odometry** (with ``--odometry``): wheel odometry (/<ns>/odom/wheel) and the EKF
+   (/<ns>/odom) against ground truth on every motion of the robot. Ground truth's speed and
+   turn rate split the drive into straights and turns in place (see motions()). Over a
+   straight, each source's motion is taken in its own heading at the start (forward and
+   left), and the error is the distance between the source's motion and the true one, as a
+   share of the distance; over a turn in place, the error of the angle turned, as a share of
+   the angle. These are the measures of Phase 1's odometry checks, run on the bag.
+
 Then one [PASS] or [FAIL] line per acceptance criterion of plan F7: AMCL converges within
 2.0 m; after that its error stays under 0.10 m for at least 5 min; gyro and accelerometer
-sigma, each axis, within +-20 % of robot.yaml, from at least 25 s standing still.
+sigma, each axis, within +-20 % of robot.yaml, from at least 25 s standing still. With
+--odometry, four more with Phase 1's limits, for wheel odometry and for the EKF: under 1 % on
+every straight of 10 m or more, under 2 % on every turn in place of 80 degrees or more. A bag
+without amcl_pose (or without imu) is then evaluated for the rest, and says so.
 
-Exit codes: 0 every criterion passes; 1 one fails; 2 the bag cannot be read, lacks amcl_pose
-or ground truth, or the plot cannot be written.
+Exit codes: 0 every criterion passes; 1 one fails; 2 the bag cannot be read, lacks ground
+truth or (without --odometry) amcl_pose, or the plot cannot be written (it needs amcl_pose).
 """
 
 import argparse
@@ -90,6 +102,21 @@ STILL_PERIOD = 10.0              # s
 STILL_TRIM = 1.0                 # s left out at the start of each still period
 
 IMU_AXES = ('gyro x', 'gyro y', 'gyro z', 'accel x', 'accel y', 'accel z')
+
+# Odometry against ground truth (--odometry): Phase 1's limits, plan S1.
+STRAIGHT_LIMIT = 0.01            # error under 1 % of the distance on a straight
+TURN_LIMIT = 0.02                # error under 2 % of the angle of a turn in place
+MIN_STRAIGHT = 10.0              # m: straights at least this long are judged
+# Turns in place of at least this are judged. drive_route ends a turn in place a few degrees
+# before it faces the next segment and turns the rest while it drives, so its 90 degree
+# corners turn about 86 degrees in place (85.8 in the Phase 2 survey bag); its 45 degree
+# turns stay below.
+MIN_TURN = math.radians(80.0)
+# Telling the motions apart, from ground truth's speed and turn rate.
+MOVING_SPEED = 0.02              # m/s: faster than this is driving
+TURNING_RATE = 0.02              # rad/s: not driving, but turning faster: turning in place
+MAX_STRAIGHT_TURN = math.radians(10.0)   # a drive that turns more than this is a curve
+STRAIGHT, TURN, CURVE = 'straight', 'turn in place', 'curve'
 
 # Plot colours from the dataviz reference palette: AMCL wears categorical slot 1 (blue), the
 # EKF slot 2 (orange); validated as a pair, light mode. Ground truth is the reference, in ink.
@@ -136,6 +163,15 @@ class Track:
         """Return the path length from the first pose to each pose, in metres."""
         return np.concatenate(([0.0], np.cumsum(np.hypot(np.diff(self.x), np.diff(self.y)))))
 
+    def covers(self, start, end):
+        """Return True if the track has poses from ``start`` to ``end`` (seconds)."""
+        return len(self.t) > 0 and self.t[0] <= start and self.t[-1] >= end
+
+    def heading_change(self, start, end):
+        """Return the heading change from ``start`` to ``end`` in radians, full turns counted."""
+        heading = np.unwrap(self.yaw)
+        return float(np.interp(end, self.t, heading) - np.interp(start, self.t, heading))
+
 
 def wrap(angle):
     """Wrap angles (a number or an array) to [-pi, pi)."""
@@ -147,10 +183,14 @@ class Recording:
     """What a bag holds for one robot (the topics are those of ``topics_for``)."""
 
     topics: dict
+    available: frozenset         # every topic in the bag
     truth: Track
+    speed: np.ndarray            # per ground-truth pose: its speed [m/s]
+    turn_rate: np.ndarray        # per ground-truth pose: its turn rate, unsigned [rad/s]
     still: np.ndarray            # per ground-truth pose: True while standing still
-    amcl: Track
+    amcl: Track | None           # None if the bag has no amcl_pose (only with --odometry)
     ekf: Track | None            # None if the bag has no EKF odometry
+    wheel: Track | None          # None if the bag has no wheel odometry
     initial: Track | None        # the initial poses, or None
     imu_t: np.ndarray            # IMU stamps [s] (empty without IMU)
     imu: np.ndarray              # (n, 6): gyro x, y, z [rad/s], accel x, y, z [m/s^2]
@@ -161,19 +201,24 @@ def topics_for(namespace):
     """Return {role: topic} of the robot in ``namespace``."""
     ns = '/' + namespace.strip('/')
     return {'amcl': f'{ns}/amcl_pose', 'truth': f'{ns}/ground_truth/odom', 'ekf': f'{ns}/odom',
-            'initial': f'{ns}/initialpose', 'imu': f'{ns}/imu'}
+            'wheel': f'{ns}/odom/wheel', 'initial': f'{ns}/initialpose', 'imu': f'{ns}/imu'}
 
 
-def read_recording(path, namespace='robot1'):
-    """Read the bag at ``path``; raise BagError if it lacks amcl_pose or ground truth."""
+def read_recording(path, namespace='robot1', need_amcl=True):
+    """
+    Read the bag at ``path``.
+
+    Raises BagError if it lacks ground truth, or amcl_pose while ``need_amcl``.
+    """
     topics = topics_for(namespace)
     available = bags.topic_types(path)
-    missing = [topics[role] for role in ('amcl', 'truth') if topics[role] not in available]
+    needed = ('amcl', 'truth') if need_amcl else ('truth',)
+    missing = [topics[role] for role in needed if topics[role] not in available]
     if missing:
         raise BagError(f'{path} has no {" and no ".join(missing)} (it has: '
                        f'{", ".join(sorted(available)) or "no topics"})')
     role_of = {topic: role for role, topic in topics.items()}
-    poses = {'amcl': [], 'truth': [], 'ekf': [], 'initial': []}
+    poses = {'amcl': [], 'truth': [], 'ekf': [], 'wheel': [], 'initial': []}
     speeds = []
     imu = []
     for topic, message, _ in bags.read(path, set(topics.values())):
@@ -193,20 +238,22 @@ def read_recording(path, namespace='robot1'):
             twist = message.twist.twist
             speeds.append((stamp, math.hypot(twist.linear.x, twist.linear.y),
                            abs(twist.angular.z)))
-    if not poses['amcl'] or not poses['truth']:
+    if not poses['truth'] or (need_amcl and not poses['amcl']):
         raise BagError(f'{path}: {topics["amcl"]} or {topics["truth"]} has no messages')
     truth = Track.from_rows(poses['truth'])
-    # The still flag of each kept ground-truth pose (Track.from_rows drops repeated stamps).
+    # The speed, turn rate and still flag of each kept ground-truth pose (Track.from_rows
+    # drops repeated stamps, keeping the last; so does this).
     speeds = np.asarray(speeds, dtype=float)
     speeds = speeds[np.argsort(speeds[:, 0], kind='stable')]
     speeds = speeds[np.append(np.diff(speeds[:, 0]) > 0.0, True)]
     still = (speeds[:, 1] < STILL_SPEED) & (speeds[:, 2] < STILL_TURN)
     imu = np.asarray(imu, dtype=float).reshape(-1, 13)
     imu = imu[np.argsort(imu[:, 0], kind='stable')]
+    tracks = {role: Track.from_rows(rows) if rows else None for role, rows in poses.items()}
     return Recording(
-        topics=topics, truth=truth, still=still, amcl=Track.from_rows(poses['amcl']),
-        ekf=Track.from_rows(poses['ekf']) if poses['ekf'] else None,
-        initial=Track.from_rows(poses['initial']) if poses['initial'] else None,
+        topics=topics, available=frozenset(available), truth=truth, speed=speeds[:, 1],
+        turn_rate=speeds[:, 2], still=still, amcl=tracks['amcl'], ekf=tracks['ekf'],
+        wheel=tracks['wheel'], initial=tracks['initial'],
         imu_t=imu[:, 0], imu=imu[:, 1:7], imu_covariance=imu[:, 7:13])
 
 
@@ -386,6 +433,114 @@ def imu_noise(recording):
                     np.median(np.concatenate(used), axis=0))
 
 
+# ----------------------------------------------------------------------------- odometry
+
+
+@dataclass(frozen=True)
+class Motion:
+    """One motion of the robot, found in the ground truth: a drive or a turn in place."""
+
+    kind: str                    # STRAIGHT, TURN or CURVE (a drive that turns too much)
+    start: float                 # s: the last ground-truth pose before the motion
+    end: float                   # s: the first ground-truth pose after it
+    distance: float              # m: the ground-truth path length
+    angle: float                 # rad: the ground-truth heading change, signed
+
+    @property
+    def judged(self):
+        """Return True if Phase 1's limit applies: a long straight or a large turn."""
+        if self.kind == STRAIGHT:
+            return self.distance >= MIN_STRAIGHT
+        return self.kind == TURN and abs(self.angle) >= MIN_TURN
+
+
+def motions(recording):
+    """
+    Return the robot's motions, in time order (a tuple of Motion).
+
+    Each ground-truth pose is driving (faster than MOVING_SPEED), turning in place (slower,
+    but turning faster than TURNING_RATE) or standing still. A motion is a run of driving or
+    turning poses, from the last pose before it to the first pose after it: the robot stands
+    still there, or switches between turning and driving. A drive is a straight unless its
+    heading changes by more than MAX_STRAIGHT_TURN.
+    """
+    standing, driving, turning = 0, 1, 2
+    moving = recording.speed >= MOVING_SPEED
+    state = np.where(moving, driving,
+                     np.where(recording.turn_rate >= TURNING_RATE, turning, standing))
+    # Each run of one state, as the index of its first and of its last pose.
+    changes = np.flatnonzero(np.diff(state)) + 1
+    firsts = np.concatenate(([0], changes))
+    lasts = np.concatenate((changes, [len(state)])) - 1
+    truth = recording.truth
+    heading = np.unwrap(truth.yaw)
+    travelled = truth.travelled()
+    found = []
+    for first, last in zip(firsts, lasts):
+        if state[first] == standing:
+            continue
+        before, after = max(first - 1, 0), min(last + 1, len(state) - 1)
+        angle = float(heading[after] - heading[before])
+        if state[first] == turning:
+            kind = TURN
+        else:
+            kind = STRAIGHT if abs(angle) <= MAX_STRAIGHT_TURN else CURVE
+        found.append(Motion(kind, float(truth.t[before]), float(truth.t[after]),
+                            float(travelled[after] - travelled[before]), angle))
+    return tuple(found)
+
+
+def straight_error(track, truth, motion):
+    """
+    Return the error of ``track`` over a drive, as a share of the distance (Phase 1's measure).
+
+    Each source's motion is taken in its own heading at the start, as (forward, left): that
+    cancels where its frame lies in the world and the heading error it had before the drive.
+    """
+    def moved(source):
+        x, y, yaw = source.at(np.array([motion.start, motion.end]))
+        dx, dy = x[1] - x[0], y[1] - y[0]
+        cos, sin = math.cos(yaw[0]), math.sin(yaw[0])
+        return np.array([cos * dx + sin * dy, -sin * dx + cos * dy])
+
+    true = moved(truth)
+    return float(np.linalg.norm(moved(track) - true) / np.linalg.norm(true))
+
+
+def turn_error(track, truth, motion):
+    """Return the error of ``track`` over a turn, as a share of the angle turned."""
+    true = truth.heading_change(motion.start, motion.end)
+    return abs(track.heading_change(motion.start, motion.end) - true) / abs(true)
+
+
+def motion_error(track, truth, motion):
+    """Return the error of ``track`` over one motion, or None without poses for all of it."""
+    if track is None or not track.covers(motion.start, motion.end):
+        return None
+    if motion.kind == TURN:
+        return turn_error(track, truth, motion)
+    return straight_error(track, truth, motion)    # a curve is measured like a straight
+
+
+@dataclass(frozen=True, eq=False)
+class OdometryCheck:
+    """Wheel odometry and the EKF against ground truth, motion by motion (--odometry)."""
+
+    motions: tuple               # Motion, in time order
+    errors: dict                 # source -> per motion its error (a share), None without poses
+    topics: dict                 # source -> its topic
+
+
+def odometry_check(recording):
+    """Return the OdometryCheck of the recording's wheel odometry and EKF."""
+    found = motions(recording)
+    sources = {'wheel': (recording.wheel, recording.topics['wheel']),
+               'EKF': (recording.ekf, recording.topics['ekf'])}
+    errors = {name: tuple(motion_error(track, recording.truth, motion) for motion in found)
+              for name, (track, _) in sources.items()}
+    return OdometryCheck(found, errors, {name: topic for name, (_, topic) in sources.items()})
+
+
 # ----------------------------------------------------------------------------- criteria
 
 
@@ -395,8 +550,28 @@ def _criterion(rule, title, passed, summary, advice):
 
 
 def criteria(evaluation, robot):
-    """Return one RuleResult per acceptance criterion of plan F7."""
-    loc, imu = evaluation.localization, evaluation.imu
+    """
+    Return one RuleResult per acceptance criterion: plan F7, and Phase 1's odometry limits.
+
+    With --odometry (``evaluation.odometry`` set), a bag without amcl_pose or without imu
+    leaves out those criteria; without it, the bag has amcl_pose, and no IMU fails its two.
+    """
+    rec, imu, odometry = evaluation.recording, evaluation.imu, evaluation.odometry
+    results = []
+    if evaluation.localization is not None:
+        results += _amcl_criteria(evaluation.localization)
+    if odometry is None or rec.topics['imu'] in rec.available:
+        results += [
+            _sigma_criterion('imu_gyro', 'gyro', imu, 0, robot.imu.gyro_noise_stddev, 'rad/s'),
+            _sigma_criterion('imu_accel', 'accelerometer', imu, 3,
+                             robot.imu.accel_noise_stddev, 'm/s^2')]
+    if odometry is not None:
+        results += _odometry_criteria(odometry)
+    return tuple(results)
+
+
+def _amcl_criteria(loc):
+    """Return the two AMCL criteria of plan F7: convergence, then tracking."""
     stats = loc.statistics()
     distance = loc.convergence_distance
     title = f'AMCL converges within {MAX_CONVERGENCE_DISTANCE:g} m of driving'
@@ -431,10 +606,46 @@ def criteria(evaluation, robot):
             f'{stats["max"]:.3f} m',
             'drive longer after convergence: drive_route --route survey --speed 0.5 takes '
             'about 7 min')
-    return (convergence, tracking,
-            _sigma_criterion('imu_gyro', 'gyro', imu, 0, robot.imu.gyro_noise_stddev, 'rad/s'),
-            _sigma_criterion('imu_accel', 'accelerometer', imu, 3,
-                             robot.imu.accel_noise_stddev, 'm/s^2'))
+    return [convergence, tracking]
+
+
+def _odometry_criteria(check):
+    """Return Phase 1's two odometry criteria for wheel odometry, then the two for the EKF."""
+    kinds = ((STRAIGHT, 'straight', STRAIGHT_LIMIT, f'straight of {MIN_STRAIGHT:g} m or more'),
+             (TURN, 'turn', TURN_LIMIT,
+              f'turn in place of {math.degrees(MIN_TURN):g} deg or more'))
+    results = []
+    for source, errors in check.errors.items():
+        topic = check.topics[source]
+        for kind, short, limit, what in kinds:
+            title = f'{source} odometry ({topic}) under {100.0 * limit:g} % on every {what}'
+            rule = f'odometry_{source.lower()}_{short}'
+            judged = [(number, motion, error) for number, (motion, error)
+                      in enumerate(zip(check.motions, errors), 1)
+                      if motion.kind == kind and motion.judged]
+            missing = [number for number, _, error in judged if error is None]
+            if not judged:
+                results.append(_criterion(
+                    rule, title, False, f'no {what} in the bag',
+                    'drive a route that has one: drive_route --route survey'))
+            elif missing:
+                results.append(_criterion(
+                    rule, title, False, f'no {topic} poses for motion '
+                    f'{", ".join(f"#{number}" for number in missing)}',
+                    f'record {topic} from the start of the drive to its end'))
+            else:
+                number, motion, worst = max(judged, key=lambda item: item[2])
+                size = (f'{motion.distance:.2f} m' if kind == STRAIGHT
+                        else f'{math.degrees(motion.angle):+.1f} deg')
+                plural = 's' if len(judged) != 1 else ''
+                results.append(_criterion(
+                    rule, title, all(error < limit for _, _, error in judged),
+                    f'worst {100.0 * worst:.3f} % (#{number}, {size}) on {len(judged)} '
+                    f'{short}{plural}',
+                    f'#{number} is off by {100.0 * worst:.2f} %: compare wheel_radius and '
+                    'wheel_separation in controllers.yaml with robot.yaml, then the physics '
+                    'step and wheel slip (the wheel collisions, warehouse_description README)'))
+    return results
 
 
 def _sigma_criterion(rule, sensor, imu, first, expected, unit):
@@ -464,16 +675,24 @@ class Evaluation:
     """Everything evaluate() found in a bag."""
 
     recording: Recording
-    localization: Localization
+    localization: Localization | None   # None without amcl_pose (only with --odometry)
     drift: Drift | None          # None without EKF odometry
     imu: ImuNoise | None         # None without IMU samples while standing still
+    odometry: OdometryCheck | None      # None unless --odometry
 
 
-def evaluate(path, namespace='robot1'):
-    """Read the bag at ``path`` and evaluate it; return an Evaluation."""
-    recording = read_recording(path, namespace)
-    loc = localization(recording)
-    return Evaluation(recording, loc, ekf_drift(recording, loc.start), imu_noise(recording))
+def evaluate(path, namespace='robot1', odometry=False):
+    """
+    Read the bag at ``path`` and evaluate it; return an Evaluation.
+
+    ``odometry``: also check the odometry, motion by motion; the bag then needs no amcl_pose.
+    """
+    recording = read_recording(path, namespace, need_amcl=not odometry)
+    loc = localization(recording) if recording.amcl is not None else None
+    # Without AMCL, the EKF's drift counts from the first ground-truth pose.
+    start = loc.start if loc is not None else float(recording.truth.t[0])
+    return Evaluation(recording, loc, ekf_drift(recording, start), imu_noise(recording),
+                      odometry_check(recording) if odometry else None)
 
 
 def report(path, evaluation, results):
@@ -481,11 +700,52 @@ def report(path, evaluation, results):
     rec, loc = evaluation.recording, evaluation.localization
     drift, imu = evaluation.drift, evaluation.imu
     topics = rec.topics
-    initial = len(rec.initial) if rec.initial is not None else 0
-    lines = [f'bag {path}: {len(rec.amcl)} AMCL poses, {len(rec.truth)} ground-truth poses, '
-             f'{len(rec.ekf) if rec.ekf is not None else 0} EKF poses, {len(rec.imu_t)} IMU '
-             f'samples, {initial} initial pose{"" if initial == 1 else "s"}']
-    lines.append(f'AMCL ({topics["amcl"]}) against ground truth ({topics["truth"]}):')
+
+    def count(track):
+        return 0 if track is None else len(track)
+
+    initial = count(rec.initial)
+    lines = [f'bag {path}: {count(rec.amcl)} AMCL poses, {len(rec.truth)} ground-truth poses, '
+             f'{count(rec.ekf)} EKF poses, {count(rec.wheel)} wheel odometry poses, '
+             f'{len(rec.imu_t)} IMU samples, {initial} initial pose{"" if initial == 1 else "s"}']
+    if loc is None:
+        lines.append(f'AMCL: no {topics["amcl"]} in the bag, not evaluated')
+    else:
+        lines += _amcl_lines(loc, topics)
+    if drift is None:
+        lines.append(f'EKF drift: no {topics["ekf"]} in the bag after the start')
+    else:
+        percent = 100.0 * drift.final / drift.distance if drift.distance > 0.0 else float('nan')
+        lines.append(f'EKF drift ({topics["ekf"]}, put on the ground truth at the start): '
+                     f'{drift.final:.3f} m after {drift.distance:.1f} m ({percent:.2f} % of the '
+                     f'distance), max {drift.largest:.3f} m')
+    if evaluation.odometry is not None and topics['imu'] not in rec.available:
+        lines.append(f'IMU noise: no {topics["imu"]} in the bag, not evaluated')
+    elif imu is None:
+        lines.append(f'IMU noise: no {topics["imu"]} samples while standing still for '
+                     f'{STILL_PERIOD:g} s or longer')
+    else:
+        periods = len(imu.periods)
+        lines.append(f'IMU noise ({topics["imu"]}) from {periods} still '
+                     f'period{"" if periods == 1 else "s"}, '
+                     f'{imu.still_time:.1f} s, {imu.samples} samples ({imu.repeats} repeated '
+                     'samples removed):')
+        lines.append('  axis       sigma     sigma^2   covariance   covariance / sigma^2')
+        for axis, sigma, covariance in zip(IMU_AXES, imu.sigma, imu.covariance):
+            ratio = covariance / sigma ** 2 if sigma > 0.0 else float('nan')
+            lines.append(f'  {axis:8s} {sigma:8.5f}   {sigma ** 2:9.2e}   {covariance:9.2e}   '
+                         f'{ratio:6.2f}')
+    if evaluation.odometry is not None:
+        lines += _odometry_lines(evaluation.odometry, topics['truth'])
+    lines += [str(r) for r in results]
+    passed = sum(r.passed for r in results)
+    lines.append(f'{passed} of {len(results)} localization checks pass')
+    return '\n'.join(lines)
+
+
+def _amcl_lines(loc, topics):
+    """Return the AMCL part of the report."""
+    lines = [f'AMCL ({topics["amcl"]}) against ground truth ({topics["truth"]}):']
     start = ('the newest initial pose' if loc.start_from == 'initialpose'
              else 'the first AMCL pose (no initial pose in the bag)')
     if len(loc.t):
@@ -505,31 +765,36 @@ def report(path, evaluation, results):
         lines.append(f'    position error: mean {stats["mean"]:.3f} m, RMS {stats["rms"]:.3f} m, '
                      f'P95 {stats["p95"]:.3f} m, max {stats["max"]:.3f} m')
         lines.append(f'    heading error: max {stats["max_heading_deg"]:.2f} deg')
-    if drift is None:
-        lines.append(f'EKF drift: no {topics["ekf"]} in the bag after the start')
-    else:
-        percent = 100.0 * drift.final / drift.distance if drift.distance > 0.0 else float('nan')
-        lines.append(f'EKF drift ({topics["ekf"]}, put on the ground truth at the start): '
-                     f'{drift.final:.3f} m after {drift.distance:.1f} m ({percent:.2f} % of the '
-                     f'distance), max {drift.largest:.3f} m')
-    if imu is None:
-        lines.append(f'IMU noise: no {topics["imu"]} samples while standing still for '
-                     f'{STILL_PERIOD:g} s or longer')
-    else:
-        periods = len(imu.periods)
-        lines.append(f'IMU noise ({topics["imu"]}) from {periods} still '
-                     f'period{"" if periods == 1 else "s"}, '
-                     f'{imu.still_time:.1f} s, {imu.samples} samples ({imu.repeats} repeated '
-                     'samples removed):')
-        lines.append('  axis       sigma     sigma^2   covariance   covariance / sigma^2')
-        for axis, sigma, covariance in zip(IMU_AXES, imu.sigma, imu.covariance):
-            ratio = covariance / sigma ** 2 if sigma > 0.0 else float('nan')
-            lines.append(f'  {axis:8s} {sigma:8.5f}   {sigma ** 2:9.2e}   {covariance:9.2e}   '
-                         f'{ratio:6.2f}')
-    lines += [str(r) for r in results]
-    passed = sum(r.passed for r in results)
-    lines.append(f'{passed} of {len(results)} localization checks pass')
-    return '\n'.join(lines)
+    return lines
+
+
+def _odometry_lines(check, truth_topic):
+    """Return the odometry part of the report: one line per motion of the robot."""
+    lines = [f'Odometry against ground truth ({truth_topic}), per motion: the error of wheel '
+             f'odometry ({check.topics["wheel"]}) and of the EKF ({check.topics["EKF"]}), as a '
+             'share of the distance driven or the angle turned:',
+             f'  {"#":>3s}  {"motion":13s} {"sim time [s]":>20s}  {"ground truth":>13s}  '
+             f'{"wheel":>9s}  {"EKF":>9s}']
+    for number, motion in enumerate(check.motions, 1):
+        size = (f'{math.degrees(motion.angle):+9.1f} deg' if motion.kind == TURN
+                else f'{motion.distance:9.2f} m  ')
+        cells = ['        -' if error is None else f'{100.0 * error:7.3f} %'
+                 for error in (check.errors['wheel'][number - 1],
+                               check.errors['EKF'][number - 1])]
+        if motion.judged:
+            note = ''
+        elif motion.kind == STRAIGHT:
+            note = f'   (under {MIN_STRAIGHT:g} m: not judged)'
+        elif motion.kind == TURN:
+            note = f'   (under {math.degrees(MIN_TURN):g} deg: not judged)'
+        else:
+            note = (f'   (turns {math.degrees(motion.angle):+.1f} deg while driving: not '
+                    'judged)')
+        lines.append(f'  {number:3d}  {motion.kind:13s} {motion.start:9.2f} -{motion.end:9.2f}  '
+                     f'{size}  {cells[0]}  {cells[1]}{note}')
+    if not check.motions:
+        lines.append('  the robot did not move')
+    return lines
 
 
 # ----------------------------------------------------------------------------- the plot
@@ -647,13 +912,21 @@ def main(argv=None):
     parser.add_argument('--namespace', default='robot1',
                         help='the robot namespace (default %(default)s)')
     parser.add_argument('--plot', metavar='OUT.png', help='draw the run into this PNG file')
+    parser.add_argument('--odometry', action='store_true',
+                        help='also check wheel odometry and the EKF against ground truth on '
+                             "each straight and turn in place, with Phase 1's limits (1 %% and "
+                             '2 %%); the bag then needs no amcl_pose')
     args = parser.parse_args(argv)
 
     try:
         robot = robot_config.load()
-        evaluation = evaluate(args.bag, args.namespace)
+        evaluation = evaluate(args.bag, args.namespace, odometry=args.odometry)
     except (OSError, RuntimeError, ValueError) as error:   # BagError is a ValueError
         print(f'error: {error}', file=sys.stderr)
+        return 2
+    if args.plot and evaluation.localization is None:
+        print(f'error: --plot draws AMCL against ground truth, and {args.bag} has no '
+              f'{evaluation.recording.topics["amcl"]}', file=sys.stderr)
         return 2
     results = criteria(evaluation, robot)
     print(report(args.bag, evaluation, results))

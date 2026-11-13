@@ -19,11 +19,13 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 
 ## At a glance
 
-- **Current phase (as of 2026-11-13):** Phase 3a (Nav2 navigation) is **in progress**, at its
-  first stage, S0: the leftovers of the Phase 2 review. Phase 3 (navigation with keep-out and
-  speed zones, safety) is planned in two parts, each with its own learning report, ADR, GIF and
-  tag: Phase 3a, Nav2 navigation (stages S0-S5), then Phase 3b, warehouse rules, safety and robot
-  revision C (stages S6a-S11). Phase 2 (warehouse world, mapping, localization) is
+- **Current phase (as of 2026-11-13):** Phase 3a (Nav2 navigation) is **in progress**. Its
+  first two stages are done: S0, the leftovers of the Phase 2 review, and S1, measuring the
+  laptop (`measure_load`, Gazebo without its window, the physics step as a launch argument, and
+  odometry checks from a bag). Next is S2a, Nav2 in the robot scope. Phase 3 (navigation with
+  keep-out and speed zones, safety) is planned in two parts, each with its own learning report,
+  ADR, GIF and tag: Phase 3a, Nav2 navigation (stages S0-S5), then Phase 3b, warehouse rules,
+  safety and robot revision C (stages S6a-S11). Phase 2 (warehouse world, mapping, localization) is
   **done**: the warehouse generated from one layout file (merged 2026-11-06), the SLAM map made
   on a scripted survey route (2026-11-07) and AMCL localization on it (2026-11-08), with
   [ADR-007](decisions/ADR-007-generate-the-warehouse-from-one-layout.md), the
@@ -40,8 +42,10 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
   generated 30 x 20 m warehouse (`world:=warehouse`), inside the `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
   without a simulator. In the warehouse it maps with slam_toolbox (`localization:=slam`) and
   localizes on the saved map with AMCL (`localization:=amcl`); command-line tools check a map
-  against the layout, drive scripted routes and measure localization against Gazebo's ground
-  truth from a bag. Measured in Gazebo: sensor rates
+  against the layout, drive scripted routes, measure localization and odometry against Gazebo's
+  ground truth from a bag, and measure what a run costs the laptop and how fast Gazebo runs.
+  Gazebo runs with or without its window, and with a 1, 2 or 5 ms physics step for one launch.
+  Measured in Gazebo: sensor rates
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
   10 m, EKF within 0.09-0.42 %; the saved map lies within 0.043 m and 0.015° of the layout;
   AMCL stays within 0.092 m of ground truth over a 7-minute, 175 m drive; the IMU noise is
@@ -58,7 +62,7 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` (annotated, on 73820c9, 2026-11-05, also on `origin`); its CI and lint gates removed on 2026-11-07 (ADR-008) |
 | M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); tag `phase-1` on 14cb789, the merge of pull request #2; demo GIF pending |
 | | 2 | Warehouse world generated from a layout file, mapping, localization | **done** 2026-11-08 ([report](phase-reports/phase-02-warehouse-world.md)); tag `phase-2` on 7da18a4 |
-| | 3a | Nav2 navigation: Nav2 per robot, a command line for named locations, a navigation benchmark, the physics step, teleop and Nav2 through `twist_mux` with a manual mode | **in progress** (stage S0 of S0-S5, since 2026-11-13) |
+| | 3a | Nav2 navigation: Nav2 per robot, a command line for named locations, a navigation benchmark, the physics step, teleop and Nav2 through `twist_mux` with a manual mode | **in progress** (since 2026-11-13; stages S0 and S1 of S0-S5 done, S2a next) |
 | | 3b | Warehouse rules, safety and robot revision C: keep-out and speed zones, safety fields, two low corner lidars | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
@@ -137,12 +141,20 @@ has a `wh_shell` function for that).
   topics.
 - **What it does:** `gazebo.launch.py` starts Gazebo Harmonic with a world (headless or with a
   window) and bridges `/clock` once per world. It runs `gz sim` directly rather than through a
-  shell, so one Ctrl-C (SIGINT) stops it. `spawn_robot.launch.py` spawns a robot from its
+  shell, so one Ctrl-C (SIGINT) stops it. `gz_gui:=false` runs the Gazebo server without its
+  window (since 2026-11-13; in `sim.launch.py` RViz stays on, while `headless:=true` turns both
+  off). `physics_step:=0.001`, `0.002` or `0.005` runs one launch with that physics step: the
+  world is copied into the launch's log directory with the new `<max_step_size>`, and any other
+  value (4 ms, say) stops the launch before Gazebo starts, because the step must divide the
+  10 ms period of the controller manager and the IMU. The world files keep 1 ms until stage S4
+  decides. `spawn_robot.launch.py` spawns a robot from its
   `robot_description` and bridges its `scan` (sensor-data QoS) and `ground_truth/odom` (for
   the test tools and evaluation only). Two worlds: `empty` and `warehouse`, which
   `warehouse_layout` generates (next entry).
 - **How to use it:** normally through `warehouse_bringup`'s `sim.launch.py`. On its own:
-  `ros2 launch warehouse_gazebo gazebo.launch.py headless:=true`.
+  `ros2 launch warehouse_gazebo gazebo.launch.py headless:=true`, or with
+  `world:=warehouse physics_step:=0.002`. Measured on 2026-11-13, the robot standing headless:
+  real-time factor 1.00 at 1, 2 and 5 ms, and Gazebo reported steps of exactly 1, 2 and 5 ms.
 - **Where it lives:** `warehouse_gazebo/` (`launch/`, `worlds/empty.sdf`,
   `worlds/warehouse.sdf` (generated), `config/robot_bridge.yaml`).
 
@@ -297,6 +309,8 @@ has a `wh_shell` function for that).
   colcon build --symlink-install && source install/setup.bash
   ros2 launch warehouse_bringup sim.launch.py                   # Gazebo + RViz, robot in /robot1
   ros2 launch warehouse_bringup sim.launch.py headless:=true    # no windows
+  ros2 launch warehouse_bringup sim.launch.py gz_gui:=false     # RViz without the Gazebo window
+  ros2 launch warehouse_bringup sim.launch.py physics_step:=0.002   # 2 ms physics steps
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock    # no simulator
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # map
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # localize
@@ -369,17 +383,26 @@ has a `wh_shell` function for that).
 - **What it does:** `drive_route` drives a route of the location registry (`survey`, 176 m, the
   mapping run; `smoke`, 24 m) with commands at 20 Hz stamped in sim time, steering on ground
   truth; `evaluate_localization` reads a bag and reports AMCL's error against ground truth, the
-  EKF's drift and the IMU noise, with a `[PASS]` or `[FAIL]` line per Phase 2 criterion;
-  `map_timelapse` turns a mapping bag into a GIF. Measured: the survey route at 0.4 m/s took
+  EKF's drift and the IMU noise, with a `[PASS]` or `[FAIL]` line per Phase 2 criterion, and with
+  `--odometry` (since 2026-11-13) wheel odometry and the EKF against ground truth on every
+  straight and every turn in place, judged with Phase 1's limits (1 % on straights of 10 m or
+  more, 2 % on turns of 80° or more); `map_timelapse` turns a mapping bag into a GIF;
+  `measure_load` (since 2026-11-13) samples the CPU per process group, the machine total,
+  memory, clocks and heat, and Gazebo's real-time factor and physics step, without being a ROS
+  node itself. Measured: the survey route at 0.4 m/s took
   9 min 40 s of sim time, commands at 20.00 Hz; `evaluate_localization` on the acceptance bag
-  passes 4 of 4 checks; `map_timelapse` made the Phase 2 GIF (60 frames, 0.18 MB) in about 3 s.
+  passes 4 of 4 checks, and with `--odometry` 8 of 8 (wheels at most 0.005 %, EKF at most
+  0.26 %); `map_timelapse` made the Phase 2 GIF (60 frames, 0.18 MB) in about 3 s;
+  `measure_load` itself uses 0.03-0.04 cores.
 - **How to use it:** with `ros2 launch warehouse_bringup sim.launch.py world:=warehouse` running:
 
   ```bash
   ros2 run warehouse_system_tests drive_route --route smoke --dry-run   # print, touch nothing
   ros2 run warehouse_system_tests drive_route --route survey --speed 0.4
   ros2 run warehouse_system_tests evaluate_localization bags/loc_run --plot /tmp/loc.png
+  ros2 run warehouse_system_tests evaluate_localization bags/loc_run --odometry
   ros2 run warehouse_system_tests map_timelapse bags/mapping docs/media/phase-02-mapping.gif
+  ros2 run warehouse_system_tests measure_load --world warehouse --duration 60
   ```
 
   The package README says how to record the bags.
@@ -528,6 +551,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-12 | The safety fields are sized for a reaction time of 0.25 s instead of the 0.2 s of plan §2.6 | The collision monitor waits 10-40 ms per command for the odometry transform, which 0.2 s left out; the fields grow by 1-5 cm, so they become more conservative | planned (Phase 3b) | [Plan](PROJECT_PLAN.md) §2.6 |
 | 2026-11-13 | Tags `phase-1` on 14cb789 (the merge of pull request #2, 2026-11-05) and `phase-2` on 7da18a4 (Phase 2's documents, 2026-11-08), annotated like `phase-0` (on 73820c9) | CONTRIBUTING.md: a `phase-N` marker tag per finished phase. The owner chose the merge commit for Phase 1; the alternative was 2e487b6, the status commit that marked it merged | done | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | 2026-11-13 | Phase 3a starts with stage S0, the Phase 2 leftovers: six wording fixes from the Phase 2 review (why a bag missed `tf_static`, the cell-centre share of the map offset, how often launch's shutdown error appears, the clock of the start-up times, the EKF's missed update when a tool joins, `PERCEPTION.md`'s status); `drive_route` keeps only its newest command (depth 1), names a subscription whose QoS can never match its publisher, acts on Ctrl-C only between its callbacks (a Ctrl-C inside rclpy could end it with a traceback and no stop command) and ignores a second Ctrl-C while it stops the robot; the plan's header and ADR lists brought up to date | The Phase 2 review's nine low findings, closed before the Nav2 work begins | done | [warehouse_system_tests](../src/warehouse_system_tests/README.md#drive_route) |
+| 2026-11-13 | Stage S1, measuring the laptop. `measure_load`: the PC assessment's sampler as a tool. It is not a ROS node, because a node on sim time pays for every `/clock` message, and it reads Gazebo's `/world/<world>/stats` through the gz-transport Python bindings. It groups processes by command line and counts only those with its own `ROS_DOMAIN_ID` and `GZ_PARTITION`; it takes the machine total from `/proc/schedstat`; and it flags a suspend or MemAvailable below 1.5 GiB. `gz_gui:=false` runs Gazebo without its window while RViz stays on. `physics_step:=0.001\|0.002\|0.005` writes a copy of the world into the launch's log directory, and any other value stops the launch before Gazebo starts; the world files keep 1 ms. `evaluate_localization --odometry` brings back Phase 1's odometry checks as a measurement, judging turns in place from 80° rather than the planned 90° | The physics-step comparison of stage S4 needs RTF, CPU and odometry from the same runs (Q5 (a)), and the Gazebo window costs real time (PC assessment recommendations 1, 2 and 9). The step must divide the 10 ms period of the controller manager and the IMU. `drive_route`'s 90° corners turn 85.8° in place, because it stops a turn a few degrees early and turns the rest while driving, so a 90° threshold would judge none of them. Measured headless, robot standing: RTF 1.00 and steps of exactly 1, 2 and 5 ms. Gazebo used 1.57, 1.18 and 0.78 cores, more than the PC assessment's 0.70 at 1 ms. The power profile explains it: balanced here, performance then. A repeat at 1 ms under the performance profile cost Gazebo 0.90 cores (1.30 for the whole run), at 3.6 GHz instead of 2.5. Runs are compared only under one profile. The owner accepted the 80° turn threshold | done | [warehouse_system_tests](../src/warehouse_system_tests/README.md#measure_load), [warehouse_gazebo](../src/warehouse_gazebo/README.md#the-physics-step-physics_step) |
 
 ## Planned features
 
