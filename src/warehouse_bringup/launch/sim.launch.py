@@ -18,6 +18,8 @@ Simulate the warehouse AMR: Gazebo (or mock hardware), one robot and RViz.
   ros2 launch warehouse_bringup sim.launch.py world:=empty namespace:=robot1
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse   # the generated warehouse
   ros2 launch warehouse_bringup sim.launch.py headless:=true     # no windows
+  ros2 launch warehouse_bringup sim.launch.py gz_gui:=false      # RViz, no Gazebo window
+  ros2 launch warehouse_bringup sim.launch.py physics_step:=0.002   # 2 ms physics steps
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock     # no simulator (CI)
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # make a map
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # use it
@@ -25,6 +27,11 @@ Simulate the warehouse AMR: Gazebo (or mock hardware), one robot and RViz.
 localization:=slam runs slam_toolbox in the robot's namespace; localization:=amcl runs AMCL
 there and the map server, which serves the map:= file on /map for all robots, in the system
 scope (plan F5, F6). The two never run together: each publishes map -> odom.
+
+gz_gui and physics_step go to warehouse_gazebo's gazebo.launch.py. gz_gui:=false runs the
+Gazebo server without its window and keeps RViz (the window costs more real time than RViz,
+docs/research/PC_ASSESSMENT.md section 5.7). physics_step:=0.001, 0.002 or 0.005 runs a copy of
+the world with that step; any other value stops the launch before Gazebo starts.
 
 The robot spawns at x, y and yaw where they are given. The others come from the robot's
 spawn pose in the location registry (warehouse_layout/generated/locations.yaml) when the
@@ -200,8 +207,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'headless', default_value='false',
             description='true: no Gazebo window and no RViz (sensors still render)'),
+        DeclareLaunchArgument(
+            'gz_gui', default_value='true',
+            description='false: the Gazebo server without its window; RViz stays on '
+                        '(hardware:=gz only)'),
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Start RViz (never when headless)'),
+        DeclareLaunchArgument(
+            'physics_step', default_value='',
+            description='Physics step in seconds for this run: 0.001, 0.002 or 0.005; Gazebo '
+                        'loads a copy of the world with it. Empty: the step in the world file '
+                        '(hardware:=gz only)'),
         # Empty means "not given": resolve_spawn_pose fills them in.
         DeclareLaunchArgument('x', default_value='', description=f'Spawn x [m]. {spawn_default}'),
         DeclareLaunchArgument('y', default_value='', description=f'Spawn y [m]. {spawn_default}'),
@@ -220,12 +236,18 @@ def generate_launch_description():
                         'warehouse map saved from slam_toolbox'),
     ]
 
-    # World scope: the simulator and its /clock (hardware:=gz only).
+    # World scope: the simulator and its /clock (hardware:=gz only). gazebo.launch.py checks
+    # physics_step before it starts Gazebo.
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution(
             [FindPackageShare('warehouse_gazebo'), 'launch', 'gazebo.launch.py'])),
         condition=IfCondition(EqualsSubstitution(hardware, 'gz')),
-        launch_arguments={'world': LaunchConfiguration('world'), 'headless': headless}.items(),
+        launch_arguments={
+            'world': LaunchConfiguration('world'),
+            'headless': headless,
+            'gz_gui': LaunchConfiguration('gz_gui'),
+            'physics_step': LaunchConfiguration('physics_step'),
+        }.items(),
     )
 
     # Robot scope: everything of one robot, inside its namespace.
