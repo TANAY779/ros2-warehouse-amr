@@ -2,8 +2,9 @@
 #
 # Rule: geometry is generated, tuning is validated. The xacro reads this file with
 # xacro.load_yaml(), so the URDF never repeats a number from here. Tuning files that need the
-# same numbers (controllers.yaml today; Nav2, safety fields and the battery later) must agree
-# with this file: change them together (nothing checks this automatically, ADR-008).
+# same numbers (controllers.yaml, and Nav2's nav2_params.yaml with the safety fields; the
+# battery later) must agree with this file: change them together (nothing checks this
+# automatically, ADR-008).
 #
 # Units are SI (metres, kilograms, seconds, radians), except keys ending in _deg (degrees).
 # Heights (clearance, deck_height, height, ...) are measured from the floor. x and y are
@@ -89,3 +90,23 @@ imu:
   update_rate: 100.0           # Hz
   gyro_noise_stddev: 0.002     # rad/s
   accel_noise_stddev: 0.02     # m/s^2
+
+# Inputs of the safety fields: the collision monitor's stop fields, one per band of commanded
+# speed (plan §2.6 and §3.4). Each field must hold the outline swept from the moment an obstacle
+# appears until the robot stands, braking at limits.linear.max_deceleration, plus stop_margin.
+# The fields are written by hand in warehouse_navigation/config/nav2_params.yaml;
+# `ros2 run warehouse_description safety_fields` prints what these inputs ask of each field
+# next to the field as configured.
+safety:
+  # s, from an obstacle appearing to the base starting to brake: up to 0.10 s until the next
+  # scan (10 Hz), 0.05 s until the next command reaches the collision monitor (20 Hz),
+  # 0.01-0.04 s while the monitor waits for the odom transform, 0.01 s until the controller's
+  # next update (100 Hz) and a few ms of transport. That is about 0.21 s; the rest is for
+  # jitter. Plan §2.6 assumed 0.2 s, which left out the transform wait (decided 2026-11-12).
+  reaction_time: 0.25
+  # m, added on every side of the swept outline: the lidar's noise (3 sigma = 0.03 m), the
+  # EKF's lag in the monitor's shift correction (0.019 m at 1 m/s) and the coarse speed bands.
+  stop_margin: 0.05
+  # m, added to the outline's corner radius (0.40 m): the circle that a robot standing or
+  # turning in place keeps clear, 0.48 m (plan §2.6).
+  rotation_margin: 0.08

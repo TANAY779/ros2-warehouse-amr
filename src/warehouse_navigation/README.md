@@ -224,9 +224,9 @@ names ground truth. Then run it and read the values back from the running node w
 
 `navigation:=true` in `warehouse_bringup`'s `sim.launch.py` or `robot.launch.py` adds Nav2 to
 the robot: give it a goal pose on the map, and it plans a path, follows it and stops there. Stage
-S2a of Phase 3 built this. Later stages add RViz's navigation view and the full list of checks
-(S2b), a command line for named locations (S3a), twist_mux for teleop (S5), keep-out and speed
-zones (S6b) and the low corner lidars (S7).
+S2a of Phase 3 built this, and S2b added RViz's navigation view and the checks by hand
+([below](#checking-nav2-by-hand)). Later stages add a command line for named locations (S3a),
+twist_mux for teleop (S5), keep-out and speed zones (S6b) and the low corner lidars (S7).
 
 ### What runs
 
@@ -341,7 +341,10 @@ ros2 topic echo --once /robot1/ground_truth/odom --field pose.pose.position   # 
 ```
 
 `send_goal` prints `Goal finished with status: SUCCEEDED`; Ctrl-C on it cancels the goal. RViz
-opens Phase 2's `map.rviz` (stage S2b adds a view with the costmaps and the path).
+opens `nav.rviz`, the navigation view: the map, both costmaps, the path, the footprint and the
+active safety field. Its "2D Goal Pose" tool sends a goal too: click on the map and drag to
+set the heading
+([warehouse_bringup README](../warehouse_bringup/README.md#the-navigation-view-navrviz)).
 
 Measured in headless Gazebo on 2026-11-16, two runs: the 14 lifecycle nodes were active 19.3 s
 and 12.0 s after the launch started (wall clock, polled with `ros2 lifecycle get`, so its own
@@ -353,6 +356,198 @@ The first run was recorded: an 8.5 m path at up to 1.00 m/s, never in reverse, c
 
 Until stage S5 puts twist_mux in front of the collision monitor, teleop and Nav2 both publish on
 `/robot1/cmd_vel`: cancel a goal before driving by hand.
+
+### Checking Nav2 by hand
+
+Nav2 does not warn about a parameter it does not know, and a section that misses its node
+leaves the node on its defaults. Nothing checks the configuration automatically (plan Q4 (c),
+[ADR-008](../../docs/decisions/ADR-008-develop-on-main-without-automated-tests.md)), so read the
+running system back instead of the file. The checks H1-H7 below do that with standard `ros2`
+commands. Run them after changing `config/nav2_params.yaml`, `launch/navigation.launch.py` or
+the outline in `warehouse_description`'s `robot.yaml`; each stage of Phase 3 names the checks it
+runs. Later stages extend the list: H8, the velocity chain through twist_mux (S5); H9, the zone
+filters and their masks (S6b); H10, the safety fields the collision monitor runs (S8a). S7 adds
+the corner lidars to H4 and H7.
+
+How to run them:
+
+1. Start Nav2 without RViz:
+   `ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false rviz:=false`.
+2. Open a second terminal set up like the first (the workspace sourced, the same
+   `ROS_DOMAIN_ID`) and wait until H1 shows every node `active [3]`.
+3. Leave the robot standing while the checks run: no goal, no teleop. Each `ros2` command joins
+   DDS as a new participant, and a joining participant can pause the wheel odometry for a moment
+   (Phase 2 report, problem 6). H1-H7 are about 70 commands.
+4. Run no recorder and no RViz during the checks: both add subscribers, which H4 counts.
+5. Define these two first, in the same terminal:
+
+   ```bash
+   P() { n=$1; shift; for p in "$@"; do echo -n "$p: "; ros2 param get "$n" "$p"; done; }
+   Q='--qos-durability transient_local --qos-reliability reliable'
+   ```
+
+   `P <node> <name>...` prints each parameter's name and its value. `Q` is for the latched
+   topics of H9 (stage S6b), used unquoted: `$Q`.
+
+A check passes when its output shows the stated values. `ros2 param get` names the type, for
+example `Double values are: [1.0, 0.0, 1.0]`.
+
+**H1. Lifecycle states.** With no node name, `ros2 lifecycle get` lists every lifecycle node,
+from one participant:
+
+```bash
+ros2 lifecycle get
+```
+
+It prints these 14 lines (S6b adds the six filter servers):
+
+```text
+/map_server: active [3]
+/robot1/amcl: active [3]
+/robot1/behavior_server: active [3]
+/robot1/bt_navigator: active [3]
+/robot1/collision_monitor: active [3]
+/robot1/controller_server: active [3]
+/robot1/docking_server: active [3]
+/robot1/global_costmap/global_costmap: active [3]
+/robot1/local_costmap/local_costmap: active [3]
+/robot1/planner_server: active [3]
+/robot1/route_server: active [3]
+/robot1/smoother_server: active [3]
+/robot1/velocity_smoother: active [3]
+/robot1/waypoint_follower: active [3]
+```
+
+Within about 20 s of the launch; until then some say `unconfigured [1]` or `inactive [2]`. A
+node that stays there failed to configure or activate: its error is in the launch's output.
+
+**H2. Footprint, padding and frames.**
+
+```bash
+for c in local global; do P /robot1/${c}_costmap/${c}_costmap footprint footprint_padding robot_base_frame; done
+for n in bt_navigator behavior_server smoother_server; do P /robot1/$n robot_base_frame; done
+P /robot1/collision_monitor base_frame_id
+for n in docking_server route_server; do P /robot1/$n base_frame; done
+```
+
+For each costmap it prints
+
+```text
+footprint: String value is: [[0.32, 0.24], [-0.32, 0.24], [-0.32, -0.24], [0.32, -0.24]]
+footprint_padding: Double value is: 0.04
+robot_base_frame: String value is: base_footprint
+```
+
+and then `base_footprint` on each of the other six lines. The footprint is `robot.yaml`'s
+outline, which the launch writes in. Wrong values, and what they mean:
+
+- `footprint: String value is: []`: Nav2's default. The launch did not write the outline in.
+- `footprint_padding: Double value is: 0.009999999776482582`: Nav2's default, 0.01, kept as a
+  float (`nav2_costmap_2d`'s `costmap_2d_ros.cpp`). That costmap's section did not reach it: a
+  misspelt key, or a container started without its parameter file
+  ([How the parameters reach the nodes](#how-the-parameters-reach-the-nodes)). A misspelt
+  `footprint` would not show up here: the launch writes `footprint` in by its full path, and
+  adds it where the file lacks it.
+- `base_link`: the frame those servers use by default. Their section did not reach them.
+
+**H3. Stamped commands, one type per topic.**
+
+```bash
+for n in controller_server velocity_smoother collision_monitor docking_server behavior_server; do ros2 param get /robot1/$n enable_stamped_cmd_vel; done
+for t in cmd_vel_nav cmd_vel_smoothed cmd_vel; do ros2 topic info /robot1/$t; done
+```
+
+It prints `Boolean value is: True` five times, then:
+
+```text
+Type: geometry_msgs/msg/TwistStamped
+Publisher count: 3
+Subscription count: 1
+Type: geometry_msgs/msg/TwistStamped
+Publisher count: 1
+Subscription count: 1
+Type: geometry_msgs/msg/TwistStamped
+Publisher count: 2
+Subscription count: 1
+```
+
+`cmd_vel_nav` has three publishers, the controller and the spin and wait behaviours; `cmd_vel`
+has two, the collision monitor and the docking server. A `False`, or a topic that lists two
+types (`Type: ['geometry_msgs/msg/Twist', 'geometry_msgs/msg/TwistStamped']`), means a server
+sends or expects unstamped commands; diff_drive_controller takes only stamped ones. (S5 adds
+`cmd_vel_teleop` and `cmd_vel_mux`.)
+
+**H4. Topic map.**
+
+```bash
+ros2 topic info -v /robot1/scan
+ros2 topic info -v /map
+ros2 topic list | grep -xE '/(scan|odom|speed_limit|robot1/map|local_costmap/published_footprint)'
+```
+
+- `/robot1/scan` has one publisher, the bridge `gz_bridge`, and four subscribers: `amcl` and
+  `collision_monitor` (`Node namespace: /robot1`), `local_costmap`
+  (`/robot1/local_costmap`) and `global_costmap` (`/robot1/global_costmap`), all
+  `BEST_EFFORT` like the bridge.
+- `/map` has one publisher, `map_server` (namespace `/`), and two subscribers: `amcl` and
+  `global_costmap`.
+- The `grep` prints nothing: none of `/scan`, `/odom`, `/speed_limit`, `/robot1/map` and
+  `/local_costmap/published_footprint` exists. These are the absolute names of Nav2's sample
+  parameter file; any of them means a topic left the robot's namespace.
+
+**H5. Limits, rates and the route server.**
+
+```bash
+P /robot1/velocity_smoother max_velocity min_velocity max_accel max_decel smoothing_frequency velocity_timeout stamp_smoothed_velocity_with_smoothing_time feedback
+P /robot1/controller_server controller_frequency speed_limit_topic FollowPath.desired_linear_vel FollowPath.rotate_to_heading_angular_vel FollowPath.max_angular_accel FollowPath.allow_reversing FollowPath.use_rotate_to_heading FollowPath.inflation_cost_scaling_factor goal_checker.xy_goal_tolerance
+P /robot1/behavior_server cycle_frequency behavior_plugins
+for c in local global; do P /robot1/${c}_costmap/${c}_costmap inflation_layer.inflation_radius inflation_layer.cost_scaling_factor; done
+P /robot1/route_server operations
+P /robot1/collision_monitor transform_tolerance source_timeout base_shift_correction stop_pub_timeout cmd_vel_in_topic
+```
+
+The values of `config/nav2_params.yaml`, in the order asked:
+
+- velocity smoother: `[1.0, 0.0, 1.0]`, `[0.0, 0.0, -1.0]`, `[0.5, 0.0, 2.5]`,
+  `[-1.0, 0.0, -2.5]`, `20.0`, `0.2`, `True`, `OPEN_LOOP`
+- controller server: `20.0`, `speed_limit`, `1.0`, `1.0`, `2.5`, `False`, `False`, `3.0`, `0.1`
+- behavior server: `20.0`, `['spin', 'wait']`
+- each costmap: `0.7`, `3.0`
+- route server: `['ReroutingService']`. Its default list also has `AdjustSpeedLimit`, which
+  would publish on `speed_limit` next to the speed zones (S6b).
+- collision monitor: `0.2`, `0.5`, `True`, `1.0`, `cmd_vel_smoothed` (S5 makes it
+  `cmd_vel_mux`)
+
+**H6. Trees without `BackUp`.** It prints each tree's path, then how many lines name `BackUp`:
+
+```bash
+for k in default_nav_to_pose_bt_xml default_nav_through_poses_bt_xml; do f=$(ros2 param get /robot1/bt_navigator $k | sed 's/^String value is: //'); echo "$f"; grep -c BackUp "$f"; done
+```
+
+The paths end in `share/warehouse_navigation/behavior_trees/navigate_to_pose.xml` and
+`share/warehouse_navigation/behavior_trees/navigate_through_poses.xml`, and each is followed by
+`0`. Nav2's stock trees would print `1`.
+
+**H7. Costmap and collision monitor sources.**
+
+```bash
+for c in local global; do P /robot1/${c}_costmap/${c}_costmap voxel_layer.observation_sources voxel_layer.puck.topic voxel_layer.puck.max_obstacle_height voxel_layer.puck.marking voxel_layer.puck.clearing; done
+P /robot1/collision_monitor observation_sources puck.topic puck.type
+```
+
+- each costmap: `puck`, `/robot1/scan`, `0.8`, `True`, `True`
+- collision monitor: `['puck']`, `scan`, `scan`
+
+`0.0` and a `False` for `clearing` are the obstacle layer's defaults (`obstacle_layer.cpp`):
+that costmap's layer section did not reach it, and with a top of 0.0 m it marks nothing. A
+costmap topic without the leading `/robot1` is relative and resolves under the costmap node,
+for example `/robot1/local_costmap/scan`, where nothing publishes. The monitor's `scan` is
+relative on purpose: the monitor is a server node in `/robot1`.
+
+Pasted exactly as written here on 2026-11-16, H1-H7 printed the values above in two runs, with
+every node active 11.4 s and 12.4 s after the launch. With a copy of `nav2_params.yaml` whose
+local costmap section misspells `footprint_padding` (`params_file:=` the copy), H2 printed
+`0.009999999776482582` for the local costmap and `0.04` for the global one.
 
 ### Things that look wrong but are not
 

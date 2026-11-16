@@ -34,6 +34,9 @@ warehouse_navigation's navigation.launch.py; parameters from params_file). It im
 localization:=amcl: this file sets it, so the map server and the map check run as for AMCL.
 It refuses localization:=slam, and robot.launch.py refuses it with hardware:=mock.
 
+RViz runs in the robot's namespace and opens rviz/robot.rviz, rviz/map.rviz with
+localization, or rviz/nav.rviz with navigation:=true.
+
 gz_gui and physics_step go to warehouse_gazebo's gazebo.launch.py. gz_gui:=false runs the
 Gazebo server without its window and keeps RViz (the window costs more real time than RViz,
 docs/research/PC_ASSESSMENT.md section 5.7). physics_step:=0.001, 0.002 or 0.005 runs a copy of
@@ -203,15 +206,27 @@ def rviz_setup(context):
     # Absolute (/robot1), like robot.launch.py: if this file is included inside another
     # namespace, RViz must stay with the robot at /robot1, not move to /<outer>/robot1.
     namespace = LaunchConfiguration('namespace').perform(context).strip('/')
-    # With localization, the view of the map (fixed frame map); without, of the robot (odom).
-    localization = LaunchConfiguration('localization').perform(context)
-    config = 'robot.rviz' if localization == 'none' else 'map.rviz'
+    # With navigation, the view of Nav2 (costmaps, path, footprint, safety field); with
+    # localization only, the view of the map (both fixed frame map); without either, the view
+    # of the robot (fixed frame odom). navigation:=true has set localization:=amcl by now.
+    if evaluate_condition_expression(context, [LaunchConfiguration('navigation')]):
+        config = 'nav.rviz'
+    elif LaunchConfiguration('localization').perform(context) != 'none':
+        config = 'map.rviz'
+    else:
+        config = 'robot.rviz'
     return [
         PushROSNamespace('/' + namespace),
         # The same remaps as the robot's nodes. The config uses relative topic names (scan,
         # odom), which resolve in the namespace.
         SetRemap('/tf', 'tf'),
         SetRemap('/tf_static', 'tf_static'),
+        # RViz's goal and point tools publish on the absolute /goal_pose and /clicked_point by
+        # default. These send them into the namespace, to this robot's bt_navigator, as
+        # nav2_bringup's rviz_launch.py does for a namespaced RViz. nav.rviz names them
+        # relative anyway; the remaps keep a tool reset to its default in the namespace.
+        SetRemap('/goal_pose', 'goal_pose'),
+        SetRemap('/clicked_point', 'clicked_point'),
         Node(package='rviz2', executable='rviz2',
              arguments=['-d', PathJoinSubstitution(
                  [FindPackageShare('warehouse_bringup'), 'rviz', config])],

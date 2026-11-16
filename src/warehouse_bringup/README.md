@@ -8,10 +8,11 @@ driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 
 | File | What it does |
 |---|---|
-| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only; `gz_gui` and `physics_step` go to `warehouse_gazebo`'s `gazebo.launch.py`), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)), the map server (system scope, `localization:=amcl` only, which `navigation:=true` implies) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
+| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only; `gz_gui` and `physics_step` go to `warehouse_gazebo`'s `gazebo.launch.py`), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)), the map server (system scope, `localization:=amcl` only, which `navigation:=true` implies) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot, and `/goal_pose` and `/clicked_point` remapped into the namespace too; it opens `robot.rviz`, `map.rviz` or `nav.rviz` |
 | `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners, the EKF, and slam_toolbox or AMCL ([Mapping and localization](#mapping-and-localization)) or Nav2 with AMCL ([Navigation with Nav2](#navigation-with-nav2)). Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
 | `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
 | `rviz/map.rviz` | RViz view of the map, used instead of `robot.rviz` when `localization` is not `none`: fixed frame `map`, the whole hall from above, the map (`/map`, transient local), scan, model, TF, AMCL's particle cloud and pose, the ground-truth pose (magenta arrow) and the "2D Pose Estimate" tool on the relative `initialpose` |
+| `rviz/nav.rviz` | RViz view of Nav2, used instead of `map.rviz` when `navigation:=true`: fixed frame `map`, the whole hall from above, the map, both costmaps, the planned path, the footprint, the collision monitor's field and the points it checks, the scan, AMCL's particles and the robot; the tools "2D Pose Estimate", "2D Goal Pose", "Publish Point" and "Measure" ([The navigation view](#the-navigation-view-navrviz)) |
 | `warehouse_bringup/hold_to_drive.py` | The teleop window's logic: which command to send for the keys held, and when. Plain Python, no Qt and no ROS |
 | `warehouse_bringup/connection.py` | Which clock the teleop window stamps its commands with, and the text and colour of the line at its top. Plain Python, no Qt and no ROS |
 | `warehouse_bringup/teleop_window.py` | The teleop window (Qt: key, focus and close events in, commands out) and its ROS node (parameters, the `cmd_vel` publisher in `/robot1` by default, the look at the ROS graph that chooses the clock) |
@@ -188,7 +189,7 @@ logs:
 |---|---|---|
 | Robot scope (`/robot1`) | `amcl` and `lifecycle_manager_localization`, two processes | one process, `nav2_container`: AMCL, its manager, the ten Nav2 servers and `lifecycle_manager_navigation` |
 | System scope (`/`) | `map_server`, `lifecycle_manager_map` | the same |
-| RViz | `map.rviz` | `map.rviz` (stage S2b adds a navigation view) |
+| RViz | `map.rviz` | `nav.rviz` ([below](#the-navigation-view-navrviz)) |
 
 `warehouse_navigation`'s README explains what runs, how a goal becomes motion and how the
 parameters reach the nodes ([Navigation with Nav2](../warehouse_navigation/README.md#navigation-with-nav2-phase-3)).
@@ -227,6 +228,65 @@ both publish map -> odom. Leave localization at none or amcl with navigation:=tr
 **Teleop while Nav2 runs.** Until stage S5 adds twist_mux, the teleop window and Nav2's
 collision monitor both publish on `/robot1/cmd_vel`, and teleop's commands do not pass the
 collision monitor. Cancel a goal (Ctrl-C on `send_goal`) before driving by hand.
+
+### The navigation view (`nav.rviz`)
+
+With `navigation:=true`, RViz opens `rviz/nav.rviz`: fixed frame `map`, the whole hall from
+above. Like the other views it runs in `/robot1`, so a relative topic such as `plan` is
+`/robot1/plan`.
+
+| Display | Topic | What it shows |
+|---|---|---|
+| Map | `/map` | The saved map, from the map server |
+| Global costmap | `global_costmap/costmap` | What the planner plans on: the map's walls and what the scan sees, each with its inflation. Faint (alpha 0.3) |
+| Local costmap | `local_costmap/costmap` | What the controller checks the path ahead against: what the scan sees and its inflation, in a 4 x 4 m window that moves with the robot |
+| Path | `plan` | The planner's path to the goal (blue) |
+| Footprint | `local_costmap/published_footprint` | The outline grown by its 0.04 m padding, as the local costmap uses it (white) |
+| Safety field | `velocity_fields` | The collision monitor's field for the last command it checked (orange). It grows and shrinks with the speed band: `rotate`, `slow`, `aisle`, `fast`, ... ([warehouse_description README](../warehouse_description/README.md#the-safety-fields-safety_fields)) |
+| Collision points | `collision_monitor/collision_points_marker` | The scan points the monitor checks against the field |
+| LaserScan | `scan` | The lidar puck's scan (red) |
+| ParticleCloud | `particle_cloud` | AMCL's particles |
+| RobotModel | `robot_description` | The robot |
+
+Each display subscribes with a QoS its publisher can serve (`ros2 topic info -v`, measured on
+2026-11-16). The map and both costmaps are reliable and transient local, so RViz gets them
+whenever it starts. The scan and the particles are best effort: a reliable display would receive
+nothing from them. The path, the footprint, the field and the points are reliable. The field is
+sent when the collision monitor starts and with each command after that, so it changes only
+while the robot is given commands.
+
+The tools in the toolbar:
+
+- **2D Pose Estimate** (`initialpose`): click where the robot really is and drag for its
+  heading, to put AMCL there.
+- **2D Goal Pose** (`goal_pose`): click the goal on the map and drag for the heading.
+  `bt_navigator` listens on `/robot1/goal_pose` and drives there.
+- **Publish Point** (`clicked_point`): click a point to publish it;
+  `ros2 topic echo /robot1/clicked_point` prints its coordinates, for example to pick a goal.
+- **Measure**: click two points; RViz shows the distance between them.
+
+The tools' topics are relative, so they reach this robot's AMCL and `bt_navigator`.
+`sim.launch.py` also remaps `/goal_pose` and `/clicked_point` into the namespace, next to `/tf`
+and `/tf_static`, as `nav2_bringup`'s `rviz_launch.py` does for a namespaced RViz: a tool reset
+to its absolute default topic still reaches this robot.
+
+The **Navigation 2** panel (Nav2's own) shows whether Nav2 and AMCL are active and how a goal
+is going. Its buttons cancel the goal in progress, pause and resume Nav2, or reset it (which
+stops every server until "Startup"). It runs inside RViz, in `/robot1`, and Nav2's source
+(`nav2_panel.cpp`) gives it the managers' names relative, so it asks this robot's
+`/robot1/lifecycle_manager_navigation` and `/robot1/lifecycle_manager_localization`. That has
+not been seen yet: RViz needs a screen, and stage S2b was checked without one. Check it once
+with a window: with Nav2 up, the panel should show both as active.
+
+Later stages add the keep-out and speed masks (S6b) and the two corner lidars' scans (S7).
+
+Checked without a window on 2026-11-16 (RViz itself does not start without a display: its GL
+renderer needs one). The launch starts RViz as
+`rviz2 -d .../nav.rviz --ros-args -r __ns:=/robot1 ... -r /tf:=tf -r /tf_static:=tf_static -r /goal_pose:=goal_pose -r /clicked_point:=clicked_point`.
+Every topic a display of `nav.rviz` reads exists, with the display's message type: `/map`, and
+the others under `/robot1`. One `geometry_msgs/msg/PoseStamped` on `/robot1/goal_pose`, which is
+what "2D Goal Pose" sends, drove the robot to (8.2, 1.5): the goal ended `SUCCEEDED`, in three
+runs 0.060-0.074 m and 0.067-0.095 rad from it by ground truth.
 
 ## Driving with teleop
 

@@ -19,9 +19,14 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <!-- mock_components/GenericSystem (hardware:=mock) is part of hardware_interface -->
   <exec_depend>hardware_interface</exec_depend>
-  <!-- The warehouse_description.robot_config module reads robot.yaml from the share directory -->
+  <!-- The warehouse_description.robot_config module reads robot.yaml and controllers.yaml
+       from the share directory; safety_fields reads them through it -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <!-- safety_fields also reads warehouse_navigation's config/nav2_params.yaml. That package
+       is not declared here: it depends on this one, and colcon refuses the cycle ("Unable to
+       order packages topologically"). safety_fields looks the file up when it runs, and says
+       so if warehouse_navigation is not installed. -->
 
   <export>
     <build_type>ament_cmake</build_type>

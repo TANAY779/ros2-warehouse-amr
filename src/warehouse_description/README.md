@@ -28,7 +28,7 @@ parts that are easy to tell apart.
 
 | File | What it does |
 |---|---|
-| `config/robot.yaml` | The single source of the geometry: outline, heights, masses, wheels, casters, hard limits, the tote tray, the lidar and the IMU. The xacro reads it with `xacro.load_yaml()`; nothing in the URDF repeats its numbers. Purely cosmetic sizes (bumper depth, button size) are named properties in the module that draws them |
+| `config/robot.yaml` | The single source of the geometry: outline, heights, masses, wheels, casters, hard limits, the tote tray, the lidar and the IMU, and the inputs of the safety fields (`safety`: reaction time, stop margin, rotation margin). The xacro reads it with `xacro.load_yaml()`; nothing in the URDF repeats its numbers. Purely cosmetic sizes (bumper depth, button size) are named properties in the module that draws them |
 | `config/controllers.yaml` | ros2_control: controller manager (100 Hz, `enforce_command_limits`), `joint_state_broadcaster`, `diff_drive_controller`, `imu_sensor_broadcaster`. Keys start with `/**/` so they match in any namespace |
 | `urdf/robot.urdf.xacro` | Top level: the `namespace` and `hardware` arguments, loads `robot.yaml`, includes the parts below |
 | `urdf/inertia.xacro` | `<inertial>` macros for a box, a cylinder and a sphere |
@@ -41,7 +41,9 @@ parts that are easy to tell apart.
 | `urdf/imu.xacro` | The IMU link and its gz `imu` sensor with Gaussian noise |
 | `urdf/ros2_control.xacro` | The `<ros2_control>` block (wheel velocity commands, wheel and IMU states) with the hardware plugin for `gz` or `mock`, and the `gz_ros2_control` system plugin for `gz` |
 | `urdf/gazebo.xacro` | Gazebo-only systems: the ground-truth `OdometryPublisher` |
-| `warehouse_description/robot_config.py` | Python module: `robot_config.load()` returns `robot.yaml` as a frozen dataclass plus the numbers derived from it (half length and width, inscribed and circumscribed radii with and without padding, the scan plane height, the outline as a polygon and as Nav2's `footprint` string). Other packages' Python code uses it instead of copying numbers (the warehouse layout's fit rules now, Nav2 checks later) |
+| `warehouse_description/robot_config.py` | Python module: `robot_config.load()` returns `robot.yaml` as a frozen dataclass plus the numbers derived from it (half length and width, inscribed and circumscribed radii with and without padding, the scan plane height, the outline as a polygon and as Nav2's `footprint` string). `load_base()` adds the base's limits from `controllers.yaml`, and `field_need()` is the sweep model of the safety fields ([below](#the-safety-fields-safety_fields)). Other packages' Python code uses it instead of copying numbers (the warehouse layout's fit rules, Nav2's footprint) |
+| `warehouse_description/safety_fields.py` | `ros2 run warehouse_description safety_fields`: what each safety field must cover, next to the field in `warehouse_navigation`'s `nav2_params.yaml` ([below](#the-safety-fields-safety_fields)). Reads files only, no ROS node |
+| `scripts/safety_fields` | Starts the tool above. CMake installs it as `lib/warehouse_description/safety_fields`, the file `ros2 run` runs |
 
 ## Arguments
 
@@ -161,6 +163,93 @@ already includes them.
 - **Ground truth.** `OdometryPublisher` (hardware `gz` only) publishes the robot's world pose
   with frame `map` (the Gazebo world frame is the map frame, plan §2.4). It is for tests and
   evaluation only.
+
+## The safety fields: `safety_fields`
+
+Nav2's collision monitor stops the robot when the lidar has points inside a *field*, a polygon
+round the robot. The field depends on the command: one polygon per band of commanded speed v and
+turn rate ω, six bands in all (`velocity_fields` in `warehouse_navigation`'s
+`config/nav2_params.yaml`, plan §3.4). The monitor uses the first band that contains the command.
+Each polygon must hold the area the robot sweeps from the moment an obstacle appears until it
+stands: for that long, nothing stops it. The polygons are written by hand; this tool prints
+what each one must cover, worked out from this package's files, next to the polygon itself:
+
+```bash
+ros2 run warehouse_description safety_fields
+# --robot, --controllers, --nav2-params: read a copy of a file instead of the installed one
+```
+
+**The model** (`robot_config`'s `field_need()`, the plan's `sweep_check.py`). An obstacle
+appears. The command (v, ω) holds for the reaction time, then the base brakes v and ω to zero,
+each at its own deceleration. The outline's corners are moved in steps of 2 ms, and the extents
+of everything they pass are kept, in `base_footprint` as it stood when the obstacle appeared.
+That is done for 7 x 7 commands spread over the band, each clamped to what the base carries out,
+and the extents are grown by the stop margin. Each input and the file it comes from:
+
+| Input | Value | From |
+|---|---|---|
+| Outline | 0.64 x 0.48 m | `robot.yaml`: `footprint.length`, `footprint.width` |
+| Braking | 1.5 m/s² | `robot.yaml`: `limits.linear.max_deceleration` |
+| Reaction time | 0.25 s | `robot.yaml`: `safety.reaction_time` (its comments give the budget) |
+| Stop margin | 0.05 m | `robot.yaml`: `safety.stop_margin` |
+| Rotation margin | 0.08 m | `robot.yaml`: `safety.rotation_margin` |
+| The base's limits | v -0.3 … 1.2 m/s, ω ±2.0 rad/s | `controllers.yaml`: `diff_drive_controller` `linear.x`, `angular.z` |
+| Angular braking | 3.0 rad/s² | `controllers.yaml`: `angular.z.max_deceleration` |
+| Nav2's limits | v 0.0 … 1.0 m/s, ω ±1.0 rad/s | `nav2_params.yaml`: `velocity_smoother` |
+| The bands | ranges and polygons | `nav2_params.yaml`: `collision_monitor` `velocity_fields` |
+
+**The table** (its first lines list the files and these inputs):
+
+```text
+                                             need                   polygon                spare
+ #  band       v [m/s]        ω [rad/s]       front    rear    |y|   front    rear    |y|   front    rear    |y|
+ 1  rotate     -0.05 … 0.05   -2.05 … 2.05    radius 0.463           radius 0.480           radius 0.017
+ 2  reverse    -0.30 … -0.05  -1.00 … 1.00    0.427  -0.542  0.417   0.430  -0.550  0.420   0.003   0.008  0.003
+ 3  slow       0.05 … 0.30    -1.00 … 1.00    0.542  -0.427  0.417   0.550  -0.430  0.420   0.008   0.003  0.003
+ 4  aisle      0.30 … 0.50    -1.00 … 1.00    0.642  -0.370  0.441   0.650  -0.370  0.450   0.008   0.000  0.009
+ 5  fast       0.50 … 1.00    -1.00 … 1.00    0.997  -0.369  0.549   1.000  -0.370  0.550   0.003   0.001  0.001
+ 6  catch_all  -1.25 … 1.25   -2.05 … 2.05    1.183  -0.551  0.870   1.190  -0.560  0.880   0.007   0.009  0.010
+```
+
+- `#`: the order in which the monitor tries the bands; the first that contains the command wins.
+- `v`, `ω`: the commands the band takes, bounds included.
+- `need`: how far the swept outline plus the stop margin reaches, in metres from
+  `base_footprint`: forward (`front`), backward (`rear`, negative) and to either side (`|y|`).
+- `polygon`: how far the configured polygon reaches the same ways; for the sides, the nearer
+  of the two.
+- `spare`: the polygon minus the need on each side, so how much further the polygon reaches.
+  A negative spare means the polygon is too small on that side.
+- `rotate` is not a rectangle but a 24-sided polygon round the circle a robot standing or
+  turning in place keeps clear, the corner radius plus the rotation margin, 0.48 m (plan §2.6).
+  For it the table gives radii: the farthest the sweep reaches from `base_footprint`, and the
+  nearest side of the polygon (0.4796 m; its corners are 0.484 m out). A line under the table
+  repeats that circle.
+
+The last part lists, for three sets of commands, the bands they select and the commands that
+fall in no band. For such a command the monitor keeps the previous field and warns. The sets are
+Nav2's commands (the velocity smoother's limits), every command the base carries out, and the
+teleop window's, whose default top speeds are the base's limits and which reverses as fast as it
+drives forward. Today Nav2 uses `rotate`, `slow`, `aisle` and `fast`; the base and the teleop
+window use all six; and no command falls in no band. Until stage S5 the teleop window publishes
+straight to `cmd_vel`, past the monitor. S5 sends it through twist_mux into the monitor, and caps
+its reverse at 0.3 m/s.
+
+**Why a table without a verdict.** The owner chose not to have a checker tool (plan Q4 (c)).
+What decides whether the fields are right is the robot: the safety scenarios of stages S8a
+(turning in place next to a post) and S8b (stopping for boxes), measured in Gazebo. The table
+shows the reasoning behind the polygons and how much room each one has, so a change to
+`robot.yaml`, `controllers.yaml` or the fields can be read at a glance. It always exits 0 once it
+has printed the table, whatever the spares; it exits 1 only when it cannot read a file. The model
+reproduces the plan's `sweep_check.py --reaction 0.25` exactly. Its precision is about 1 mm:
+with 1 ms steps, three of the needs in the table grow by 1 mm (`fast`'s rear to -0.370,
+`catch_all`'s front to 1.184 and its sides to 0.871). So the spares under 1 mm, at the rear of
+`aisle` and `fast` and at the sides of `fast`, are within the model's precision. Those two rear
+needs are little more than the outline's own rear plus the margin, 0.32 + 0.05 m.
+
+`safety_fields` reads `nav2_params.yaml` from `warehouse_navigation`'s share directory, but this
+package cannot declare a dependency on `warehouse_navigation`, which depends on this one: colcon
+refuses the cycle. If `warehouse_navigation` is not built, the tool says so; build it, or pass
+`--nav2-params`.
 
 ## Revisions
 

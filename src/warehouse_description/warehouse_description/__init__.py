@@ -12,4 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Python side of the robot description: robot_config reads config/robot.yaml."""
+"""
+Python side of the robot description.
+
+robot_config reads config/robot.yaml; safety_fields prints the safety fields' derivation.
+"""
