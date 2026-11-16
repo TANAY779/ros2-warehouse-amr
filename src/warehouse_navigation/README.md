@@ -1,8 +1,9 @@
 # warehouse_navigation
 
 Localization and navigation of the warehouse AMR. Phase 1 adds the odometry EKF; Phase 2 makes
-a map of the warehouse with slam_toolbox and localizes on it with AMCL; Nav2 follows in Phase 3,
-docking in Phase 5.
+a map of the warehouse with slam_toolbox and localizes on it with AMCL; Phase 3 adds Nav2, which
+drives the robot to a goal pose ([below](#navigation-with-nav2-phase-3)); docking follows in
+Phase 5.
 
 ## Files
 
@@ -14,9 +15,12 @@ docking in Phase 5.
 | `config/amcl.yaml` | AMCL's parameters, and those of its lifecycle manager `lifecycle_manager_localization` |
 | `config/map_server.yaml` | `map_server`'s parameters, and those of its lifecycle manager `lifecycle_manager_map` |
 | `launch/slam.launch.py` | Robot scope: slam_toolbox (`async_slam_toolbox_node`), configured and activated by launch events. Include it in the robot's namespace after the `/tf` remaps, like the EKF (`robot.launch.py localization:=slam` does) |
-| `launch/localization.launch.py` | Robot scope: `amcl` and `lifecycle_manager_localization`. `x`, `y`, `yaw`: AMCL's initial pose in the map frame (`robot.launch.py localization:=amcl` passes the spawn pose) |
+| `launch/localization.launch.py` | Robot scope: `amcl` and `lifecycle_manager_localization`. `x`, `y`, `yaw`: AMCL's initial pose in the map frame (`robot.launch.py localization:=amcl` passes the spawn pose). `container`: empty (the default) starts both as nodes of their own; the full name of a running component container loads both into it (`navigation.launch.py` does) |
 | `launch/map_server.launch.py` | System scope: `map_server` and `lifecycle_manager_map` in `/`, serving the `map:=` file on `/map` (default `maps/warehouse.yaml`). Refuses a map file that does not exist before it starts anything |
 | `maps/` | The warehouse map AMCL uses, with a README that says how it was made ([maps/README.md](maps/README.md)) |
+| `config/nav2_params.yaml` | Nav2's parameters: the ten servers that `nav2_bringup`'s `navigation_launch.py` starts, and both costmaps. In Nav2's own style (plain node keys such as `controller_server:`, and `<robot_namespace>`), with the reason for every changed value next to it |
+| `behavior_trees/` | `navigate_to_pose.xml` and `navigate_through_poses.xml`: Nav2's two default behaviour trees without the recovery that drives the robot backwards |
+| `launch/navigation.launch.py` | Robot scope: Nav2 and AMCL in one process, `nav2_container`. Processes `params_file` (default `config/nav2_params.yaml`), starts the container with it, loads AMCL through `localization.launch.py` and the Nav2 servers through `navigation_launch.py`. `namespace`, `use_sim_time`, `x`, `y`, `yaw` as for AMCL. `robot.launch.py navigation:=true` includes it |
 
 ## The EKF (plan D3)
 
@@ -91,9 +95,9 @@ the world and with the layout, with no correction step. Make maps with robot1.
 
 | Scope | Nodes | When |
 |---|---|---|
-| System (`/`) | `map_server`, `lifecycle_manager_map` | `localization:=amcl`: one map for every robot (plan D20) |
+| System (`/`) | `map_server`, `lifecycle_manager_map` | `localization:=amcl` or `navigation:=true`: one map for every robot (plan D20) |
 | Robot (`/robot1`) | `slam_toolbox` | `localization:=slam` |
-| Robot (`/robot1`) | `amcl`, `lifecycle_manager_localization` | `localization:=amcl`: one AMCL per robot |
+| Robot (`/robot1`) | `amcl`, `lifecycle_manager_localization` | `localization:=amcl`: one AMCL per robot. With `navigation:=true` the same two run inside Nav2's container ([below](#navigation-with-nav2-phase-3)) |
 
 | Topic | From -> to | QoS |
 |---|---|---|
@@ -216,6 +220,160 @@ lifecycle managers manage the right node; AMCL takes its initial pose from the l
 names ground truth. Then run it and read the values back from the running node with
 `ros2 param get`.
 
+## Navigation with Nav2 (Phase 3)
+
+`navigation:=true` in `warehouse_bringup`'s `sim.launch.py` or `robot.launch.py` adds Nav2 to
+the robot: give it a goal pose on the map, and it plans a path, follows it and stops there. Stage
+S2a of Phase 3 built this. Later stages add RViz's navigation view and the full list of checks
+(S2b), a command line for named locations (S3a), twist_mux for teleop (S5), keep-out and speed
+zones (S6b) and the low corner lidars (S7).
+
+### What runs
+
+One process per robot, `/robot1/nav2_container` (a `component_container_isolated`), holds AMCL
+and the ten servers that `nav2_bringup`'s `navigation_launch.py` always starts. Each is a
+*component*: a node built as a library and loaded into a running process. In this container each
+component gets its own executor thread, so a slow planner cannot hold up another server's bond
+heartbeat (ROS 2 skill, `lifecycle-components.md` §6). One process for the thirteen nodes (AMCL,
+the ten servers, two lifecycle managers) also means one DDS participant instead of thirteen.
+
+| Server | What it does here |
+|---|---|
+| `bt_navigator` | Runs a behaviour tree per goal: plan, follow, recover ([below](#the-behaviour-trees)). Serves the actions `navigate_to_pose` and `navigate_through_poses` |
+| `planner_server` | Plans the path with Smac 2D on the global costmap: the map, the scan and inflation |
+| `controller_server` | Follows the path on the local costmap at 20 Hz: the Rotation Shim turns the robot in place until it faces the path, then Regulated Pure Pursuit drives |
+| `behavior_server` | The recoveries the trees call: a turn in place (`spin`) and a wait |
+| `velocity_smoother` | Holds the commands to the operating limits: 1.0 m/s, 1.0 rad/s, +0.5 and -1.0 m/s² |
+| `collision_monitor` | The last check before the base: stops the robot when the scan has points inside the field for the commanded speed ([below](#the-safety-fields)) |
+| `smoother_server`, `waypoint_follower`, `route_server`, `docking_server` | Started by `navigation_launch.py` whether used or not, and configured so that they start. Docking is Phase 5's |
+
+`lifecycle_manager_navigation` configures and activates the ten servers, one after the other;
+`lifecycle_manager_localization` does the same for AMCL. Both then watch their nodes through
+bonds. If one stops answering for 4 s of wall time (a stalled process, a laptop suspend), its
+manager resets every node it manages and starts them again once they answer; a goal in progress
+fails. The map server stays in the system scope, once for all robots.
+
+### From a goal to the wheels
+
+```text
+goal ─> bt_navigator ─> planner_server: the path
+controller_server (Shim + RPP, 20 Hz) ──┐
+behavior_server (spin, wait, 20 Hz) ────┴─ cmd_vel_nav ─> velocity_smoother ─ cmd_vel_smoothed ─> collision_monitor ─ cmd_vel ─> diff_drive_controller
+docking_server (Phase 5): cmd_vel directly, past the monitor (plan D21)
+```
+
+- Each of these topics carries `geometry_msgs/msg/TwistStamped` and nothing else.
+  `diff_drive_controller` accepts only stamped commands, and Nav2 1.3.13 publishes unstamped
+  `Twist` unless `enable_stamped_cmd_vel` is true, so the five servers that publish or subscribe
+  commands set it (controller, velocity smoother, collision monitor, docking and behavior server).
+- The base brakes when its newest command is 0.15 s old (`cmd_vel_timeout`). So every publisher
+  in the chain sends at 20 Hz, and the velocity smoother stamps each output with the time it was
+  smoothed for (`stamp_smoothed_velocity_with_smoothing_time`). By default it repeats its last
+  input's stamp, and the command the base holds then ages towards the timeout: the robot brakes
+  and drives on (Nav2 issue 5857). On the goal [below](#see-it) the command the base held was at
+  most 0.071 s old while the robot drove.
+- Nav2 never drives backwards: the smoother's lowest speed is 0, Regulated Pure Pursuit may not
+  reverse, and the trees have no recovery that backs up.
+
+### How the parameters reach the nodes
+
+`config/nav2_params.yaml` uses plain node keys (`controller_server:`), Nav2's own convention, and
+`<robot_namespace>` where a topic must be absolute. `navigation.launch.py` processes it before any
+node starts:
+
+1. `<robot_namespace>` becomes `/robot1`. A costmap layer resolves topic names under the costmap
+   node (`/robot1/local_costmap/...`), so its scan has to be the absolute `/robot1/scan`.
+2. `footprint` (the outline in `warehouse_description`'s `robot.yaml`) and the paths of the two
+   trees are written in by their full parameter paths, such as
+   `local_costmap.local_costmap.ros__parameters.footprint`. Nobody copies the outline by hand.
+3. The result goes to `navigation_launch.py`, which wraps it under `robot1:` and hands each
+   server its section. A second copy, wrapped under `robot1:` already, goes on the container's
+   own command line, together with the `/tf` remaps.
+
+The second copy is the step that is easy to miss. The two costmaps (made by the controller and
+planner servers) and the servers' TF listeners are not loaded by launch: the servers create them
+inside the process, and such nodes see only the process's own command line. Without it the costmaps would run on their
+built-in defaults instead of this file, and nothing at start-up would say so. So read the values
+back from the running nodes, not from the file:
+
+```bash
+ros2 param get /robot1/local_costmap/local_costmap footprint          # [[0.32, 0.24], [-0.32, 0.24], [-0.32, -0.24], [0.32, -0.24]]
+ros2 param get /robot1/local_costmap/local_costmap footprint_padding  # 0.04; 0.009999999776482582 is the default, 0.01
+ros2 topic info /robot1/cmd_vel                                       # Type: geometry_msgs/msg/TwistStamped, no other type
+ros2 topic info -v /robot1/tf          # publishers: robot_state_publisher, ekf_filter_node, amcl; nothing on /tf
+```
+
+### The behaviour trees
+
+`behavior_trees/` holds copies of Nav2's two default trees (`navigate_to_pose_w_replanning_and_recovery.xml`
+and `navigate_through_poses_w_replanning_and_recovery.xml`) with one line removed: the `BackUp`
+recovery, which drives the robot 0.30 m backwards. Nav2 never reverses here (reverse only to
+undock, plan P3-D12), and once a tote rides on the tray the robot cannot see behind it. They are
+copies from the first run on: a tree whose behaviour has no server fails as soon as the
+navigator loads it, so the stock trees would need the back-up behaviour loaded, and that would
+let Nav2 reverse. When planning or following fails, the recoveries take turns: clear both
+costmaps, turn 90° in place, wait 5 s. After 6 failed rounds the goal fails.
+
+### The safety fields
+
+The collision monitor has a stop field for each band of commanded speed (`velocity_fields` in
+`config/nav2_params.yaml`): `rotate` (standing or turning in place), `reverse`, `slow` (up to
+0.3 m/s), `aisle` (up to 0.5 m/s), `fast` (up to 1.0 m/s) and `catch_all`. Each is the footprint
+swept from the moment an obstacle appears until the robot stands, for a reaction time of 0.25 s
+and the base's braking at 1.5 m/s², plus 5 cm (plan §3.4; the file's comments give each band's
+numbers). The monitor uses the first band that contains the command, so `rotate` comes first and
+`catch_all` last. Until stage S7 adds the corner lidars, the puck's `scan` is its only source, and
+a scan older than 0.5 s stops the robot. The active field is published on `/robot1/velocity_fields`.
+
+### See it
+
+```bash
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
+```
+
+In a second terminal set up like the first:
+
+```bash
+ros2 lifecycle get   # 14 lines ending in active [3]: map_server, amcl, the ten servers, both costmaps
+ros2 action send_goal /robot1/navigate_to_pose nav2_msgs/action/NavigateToPose \
+  "{pose: {header: {frame_id: map}, pose: {position: {x: 8.2, y: 1.5}, orientation: {w: 1.0}}}}"
+ros2 topic echo --once /robot1/ground_truth/odom --field pose.pose.position   # about x 8.2, y 1.5
+```
+
+`send_goal` prints `Goal finished with status: SUCCEEDED`; Ctrl-C on it cancels the goal. RViz
+opens Phase 2's `map.rviz` (stage S2b adds a view with the costmaps and the path).
+
+Measured in headless Gazebo on 2026-11-16, two runs: the 14 lifecycle nodes were active 19.3 s
+and 12.0 s after the launch started (wall clock, polled with `ros2 lifecycle get`, so its own
+start-up is included). The goal, 8.3 m from the spawn pose, was reached in 9.6 s and 9.7 s; ground
+truth then lay 0.070 m and 0.065 m, 0.041 rad and 0.038 rad (2.3° and 2.2°) from it. Nav2 stops
+within 0.10 m and 0.10 rad by AMCL's estimate, which was 0.058 m from the truth in the first run.
+The first run was recorded: an 8.5 m path at up to 1.00 m/s, never in reverse, commands at
+20.0 Hz; the real-time factor stayed at 1.00 and the container used 0.89 cores (`measure_load`).
+
+Until stage S5 puts twist_mux in front of the collision monitor, teleop and Nav2 both publish on
+`/robot1/cmd_vel`: cancel a goal before driving by hand.
+
+### Things that look wrong but are not
+
+- At start-up the costmaps log `Timed out waiting for transform from base_footprint to odom` (or
+  `to map`) a few times, until the EKF and AMCL publish their transforms.
+- `docking_server` warns `Dock database filepath nor dock parameters set`: there are no docks
+  until Phase 5.
+- At the first goal `controller_server` warns `No goal checker was specified in parameter
+  'current_goal_checker'` (and the same for the progress checker): the goal names none, so the
+  server uses the only one it has.
+- `ros2 topic info /robot1/cmd_vel_nav` counts 3 publishers: the controller and one for each
+  behaviour (spin, wait). `/robot1/cmd_vel` counts 2: the collision monitor and the docking
+  server, which publishes only while it docks.
+- At Ctrl-C, launch reports `process[component_container_isolated-10] failed to terminate '5'
+  seconds after receiving 'SIGINT', escalating to 'SIGTERM'`, sometimes also `... escalating to
+  'SIGKILL'`, then `process has died` with exit code -11 (a segmentation fault) or -9 (killed).
+  Every server deactivates and cleans up within about a second, but the container does not
+  finish its own shutdown, so launch ends it. The container shut down this way in every run of
+  the [PC assessment](../../docs/research/PC_ASSESSMENT.md) (§5.3, "Nav2") and of stage S2a.
+  Every process still stops, 6-11 s after the Ctrl-C.
+
 ## Running
 
 Mapping and localization need Gazebo (the lidar). From the workspace root:
@@ -231,6 +389,9 @@ ros2 lifecycle get /map_server                     # active
 ros2 lifecycle get /robot1/amcl                    # active
 ros2 topic info -v /robot1/tf                      # publishers include amcl
 ros2 run tf2_ros tf2_echo map base_footprint --ros-args -r /tf:=/robot1/tf -r /tf_static:=/robot1/tf_static
+
+# Navigate with Nav2 (AMCL runs inside Nav2's container); a goal: see "See it" above
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
 ```
 
 In RViz (`map.rviz`, fixed frame `map`) the scan should lie on the map's walls. Drag the

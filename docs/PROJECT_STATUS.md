@@ -19,10 +19,12 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 
 ## At a glance
 
-- **Current phase (as of 2026-11-13):** Phase 3a (Nav2 navigation) is **in progress**. Its
-  first two stages are done: S0, the leftovers of the Phase 2 review, and S1, measuring the
+- **Current phase (as of 2026-11-16):** Phase 3a (Nav2 navigation) is **in progress**. Its
+  first three stages are done: S0, the leftovers of the Phase 2 review; S1, measuring the
   laptop (`measure_load`, Gazebo without its window, the physics step as a launch argument, and
-  odometry checks from a bag). Next is S2a, Nav2 in the robot scope. Phase 3 (navigation with
+  odometry checks from a bag); and S2a, Nav2 in the robot scope (`navigation:=true`: Nav2 and
+  AMCL in one container drive the robot to a goal pose). Next is S2b, RViz's navigation view and
+  the checks by hand written into the README. Phase 3 (navigation with
   keep-out and speed zones, safety) is planned in two parts, each with its own learning report,
   ADR, GIF and tag: Phase 3a, Nav2 navigation (stages S0-S5), then Phase 3b, warehouse rules,
   safety and robot revision C (stages S6a-S11). Phase 2 (warehouse world, mapping, localization) is
@@ -36,12 +38,13 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
   written. Phases 0, 1 and 2 carry the tags `phase-0`, `phase-1` and `phase-2`. Still open: the
   Phase 1 demo GIF (recorded by the maintainer, Phase 1 report exercise 7) and the owner's own
   teleop map (Phase 2 report exercise 6).
-- **Last updated:** 2026-11-13
+- **Last updated:** 2026-11-16
 - **What runs today** (on `main`): our own robot (revision B, safety yellow and
   charcoal) drives by keyboard (the teleop window) through ros2_control, in an empty Gazebo world or in the
   generated 30 x 20 m warehouse (`world:=warehouse`), inside the `/robot1` namespace, with a 360° lidar puck on its deck, an IMU and EKF odometry in RViz. The same launch file runs it on mock hardware
-  without a simulator. In the warehouse it maps with slam_toolbox (`localization:=slam`) and
-  localizes on the saved map with AMCL (`localization:=amcl`); command-line tools check a map
+  without a simulator. In the warehouse it maps with slam_toolbox (`localization:=slam`),
+  localizes on the saved map with AMCL (`localization:=amcl`), and with `navigation:=true` Nav2
+  drives it to a goal pose sent from the command line; command-line tools check a map
   against the layout, drive scripted routes, measure localization and odometry against Gazebo's
   ground truth from a bag, and measure what a run costs the laptop and how fast Gazebo runs.
   Gazebo runs with or without its window, and with a 1, 2 or 5 ms physics step for one launch.
@@ -49,7 +52,8 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
   10 / 100 / 50 Hz, 0 scanner self-hits, wheel odometry within 0.01 % of ground truth over
   10 m, EKF within 0.09-0.42 %; the saved map lies within 0.043 m and 0.015° of the layout;
   AMCL stays within 0.092 m of ground truth over a 7-minute, 175 m drive; the IMU noise is
-  within 3 % of `robot.yaml`.
+  within 3 % of `robot.yaml`; Nav2 reaches a goal 8.3 m away in under 10 s and stops within
+  0.07 m of it by ground truth.
 - **How changes are checked (since 2026-11-07):** there are no automated tests, lint checks or
   CI, and every commit goes straight to `main`, without branches or pull requests
   ([ADR-008](decisions/ADR-008-develop-on-main-without-automated-tests.md)). A change is checked by
@@ -62,7 +66,7 @@ AMCL, occupancy grids, lifecycle managers or rosbag2, the
 | M0 Foundation | 0 | Repository, lint gates, CI, dev containers, ADRs | **done** ([report](phase-reports/phase-00-foundation.md)); tag `phase-0` (annotated, on 73820c9, 2026-11-05, also on `origin`); its CI and lint gates removed on 2026-11-07 (ADR-008) |
 | M1 Core AMR (`v1.0.0`) | 1 | Robot description, ros2_control drive, lidar + IMU, EKF, first drive in Gazebo | **done**, merged 2026-11-05 ([report](phase-reports/phase-01-robot-description.md)); tag `phase-1` on 14cb789, the merge of pull request #2; demo GIF pending |
 | | 2 | Warehouse world generated from a layout file, mapping, localization | **done** 2026-11-08 ([report](phase-reports/phase-02-warehouse-world.md)); tag `phase-2` on 7da18a4 |
-| | 3a | Nav2 navigation: Nav2 per robot, a command line for named locations, a navigation benchmark, the physics step, teleop and Nav2 through `twist_mux` with a manual mode | **in progress** (since 2026-11-13; stages S0 and S1 of S0-S5 done, S2a next) |
+| | 3a | Nav2 navigation: Nav2 per robot, a command line for named locations, a navigation benchmark, the physics step, teleop and Nav2 through `twist_mux` with a manual mode | **in progress** (since 2026-11-13; stages S0, S1 and S2a of S0-S5 done, S2b next) |
 | | 3b | Warehouse rules, safety and robot revision C: keep-out and speed zones, safety fields, two low corner lidars | planned |
 | | 4a | Interfaces + behaviour-tree task executor | planned |
 | | 4b | Order manager, order generator, KPIs | planned |
@@ -287,6 +291,47 @@ has a `wh_shell` function for that).
   `launch/localization.launch.py`, `launch/map_server.launch.py`); the README explains the
   frames, scopes, QoS, lifecycle and every changed parameter.
 
+### Nav2 navigation (`warehouse_navigation`, since 2026-11-16)
+
+- **What it is:** Nav2 1.3.13 for one robot, in the robot scope (plan D20): give it a goal pose
+  on the map and it plans a path, follows it and stops there. Stage S2a of Phase 3a; later stages
+  add RViz's navigation view, named locations, twist_mux, zones and the corner lidars.
+- **What it does:** `navigation:=true` starts one process per robot, `/robot1/nav2_container`
+  (a `component_container_isolated`), and loads into it AMCL and its lifecycle manager (from
+  `localization.launch.py`, whose new `container` argument makes them components) and the ten
+  servers of `nav2_bringup`'s `navigation_launch.py` with their manager. Smac 2D plans; the
+  Rotation Shim turns in place and Regulated Pure Pursuit follows at 20 Hz; the velocity
+  smoother holds 1.0 m/s and 1.0 rad/s; the collision monitor stops the robot with six stop
+  fields chosen by the commanded speed, sized for a 0.25 s reaction time, with the puck's scan as
+  their only source for now. Every command topic carries `TwistStamped`, and the smoother stamps
+  each command it sends, so the command the base holds stays well inside its 0.15 s timeout. Nav2
+  never reverses: the behaviour trees are copies of Nav2's defaults without the back-up
+  recovery. `navigation.launch.py` replaces `<robot_namespace>` in `config/nav2_params.yaml`,
+  writes in the footprint from `robot.yaml` and the tree paths, and gives the processed file to
+  the container too, because the costmaps read only the process's own parameter file. Measured
+  in headless Gazebo on 2026-11-16, two runs: all 14 lifecycle nodes active 19.3 s and 12.0 s
+  after the launch; a goal 8.3 m away reached in 9.6 s and 9.7 s, ground truth then 0.070 m and
+  0.065 m, 0.041 rad and 0.038 rad from it. In the recorded run: up to 1.00 m/s, never in
+  reverse, the command the base held at most 0.071 s old, real-time factor 1.00, the container
+  0.89 cores. One Ctrl-C stops everything in 6-11 s: launch ends the container, which does not
+  finish its own shutdown (a known teardown problem, also seen in the PC assessment).
+- **How to use it:**
+
+  ```bash
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
+  ros2 lifecycle get                                     # every line active [3]
+  ros2 action send_goal /robot1/navigate_to_pose nav2_msgs/action/NavigateToPose \
+    "{pose: {header: {frame_id: map}, pose: {position: {x: 8.2, y: 1.5}, orientation: {w: 1.0}}}}"
+  ```
+
+  Read the configuration back from the running nodes (`ros2 param get`, `ros2 topic info -v`)
+  rather than from the file; the README has examples. Until S5, cancel a goal before driving by
+  hand: teleop and Nav2 both publish on `cmd_vel`.
+- **Where it lives:** `warehouse_navigation/` (`config/nav2_params.yaml`, `behavior_trees/`,
+  `launch/navigation.launch.py`, `launch/localization.launch.py`); the README's "Navigation with
+  Nav2" section explains what runs, the velocity chain, the parameter route, the trees and the
+  fields.
+
 ### Simulation bring-up (`warehouse_bringup`)
 
 - **What it is:** the top-level launch files, the entry point of every demo.
@@ -299,8 +344,10 @@ has a `wh_shell` function for that).
   inside a fleet launch (Phase 9). `localization:=slam` adds slam_toolbox to the robot;
   `localization:=amcl` adds AMCL to the robot and the map server (the `map:=` file, by default
   the committed warehouse map) in the system scope. RViz then opens `map.rviz` (fixed frame
-  `map`) instead of `robot.rviz` (fixed frame `odom`). Mock hardware has no lidar, so it refuses
-  both before anything starts.
+  `map`) instead of `robot.rviz` (fixed frame `odom`). `navigation:=true` (since 2026-11-16) adds
+  Nav2 with AMCL in one container ([Nav2 navigation](#nav2-navigation-warehouse_navigation-since-2026-11-16)):
+  it implies `localization:=amcl`, refuses `slam`, and `params_file:=` swaps its parameter file.
+  Mock hardware has no lidar, so it refuses all three before anything starts.
 - **How to use it:** from `~/warehouse_ws`:
 
   ```bash
@@ -314,6 +361,7 @@ has a `wh_shell` function for that).
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock    # no simulator
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # map
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # localize
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false   # Nav2
   ros2 control list_controllers -c /robot1/controller_manager   # three controllers, all active
   ```
 
@@ -552,6 +600,7 @@ values: **adopted** (in effect), **done** (a one-off action that is complete), *
 | 2026-11-13 | Tags `phase-1` on 14cb789 (the merge of pull request #2, 2026-11-05) and `phase-2` on 7da18a4 (Phase 2's documents, 2026-11-08), annotated like `phase-0` (on 73820c9) | CONTRIBUTING.md: a `phase-N` marker tag per finished phase. The owner chose the merge commit for Phase 1; the alternative was 2e487b6, the status commit that marked it merged | done | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | 2026-11-13 | Phase 3a starts with stage S0, the Phase 2 leftovers: six wording fixes from the Phase 2 review (why a bag missed `tf_static`, the cell-centre share of the map offset, how often launch's shutdown error appears, the clock of the start-up times, the EKF's missed update when a tool joins, `PERCEPTION.md`'s status); `drive_route` keeps only its newest command (depth 1), names a subscription whose QoS can never match its publisher, acts on Ctrl-C only between its callbacks (a Ctrl-C inside rclpy could end it with a traceback and no stop command) and ignores a second Ctrl-C while it stops the robot; the plan's header and ADR lists brought up to date | The Phase 2 review's nine low findings, closed before the Nav2 work begins | done | [warehouse_system_tests](../src/warehouse_system_tests/README.md#drive_route) |
 | 2026-11-13 | Stage S1, measuring the laptop. `measure_load`: the PC assessment's sampler as a tool. It is not a ROS node, because a node on sim time pays for every `/clock` message, and it reads Gazebo's `/world/<world>/stats` through the gz-transport Python bindings. It groups processes by command line and counts only those with its own `ROS_DOMAIN_ID` and `GZ_PARTITION`; it takes the machine total from `/proc/schedstat`; and it flags a suspend or MemAvailable below 1.5 GiB. `gz_gui:=false` runs Gazebo without its window while RViz stays on. `physics_step:=0.001\|0.002\|0.005` writes a copy of the world into the launch's log directory, and any other value stops the launch before Gazebo starts; the world files keep 1 ms. `evaluate_localization --odometry` brings back Phase 1's odometry checks as a measurement, judging turns in place from 80° rather than the planned 90° | The physics-step comparison of stage S4 needs RTF, CPU and odometry from the same runs (Q5 (a)), and the Gazebo window costs real time (PC assessment recommendations 1, 2 and 9). The step must divide the 10 ms period of the controller manager and the IMU. `drive_route`'s 90° corners turn 85.8° in place, because it stops a turn a few degrees early and turns the rest while driving, so a 90° threshold would judge none of them. Measured headless, robot standing: RTF 1.00 and steps of exactly 1, 2 and 5 ms. Gazebo used 1.57, 1.18 and 0.78 cores, more than the PC assessment's 0.70 at 1 ms. The power profile explains it: balanced here, performance then. A repeat at 1 ms under the performance profile cost Gazebo 0.90 cores (1.30 for the whole run), at 3.6 GHz instead of 2.5. Runs are compared only under one profile. The owner accepted the 80° turn threshold | done | [warehouse_system_tests](../src/warehouse_system_tests/README.md#measure_load), [warehouse_gazebo](../src/warehouse_gazebo/README.md#the-physics-step-physics_step) |
+| 2026-11-16 | Stage S2a, Nav2 in the robot scope. Our `navigation.launch.py` starts one `component_container_isolated` per robot with the processed parameter file and the `/tf` remaps on its own command line, loads AMCL into it, and includes `nav2_bringup`'s `navigation_launch.py` composed, rather than `bringup_launch.py` (a map server per robot) or our own copy of Nav2's launch file. `nav2_params.yaml` keeps Nav2's style (plain node keys, `<robot_namespace>`); the launch writes in the footprint from `robot.yaml` and the tree paths. `base_footprint` in every section; stamped commands in the five servers that send or receive them; the velocity smoother stamps what it sends and stops 0.2 s after the controller does; the behavior server at 20 Hz; our copies of Nav2's two default trees without the back-up recovery, from the first run on; minimal docking and route server sections; AMCL composed only with navigation (plain nodes with `localization:=amcl`, as in Phase 2) | The costmaps are nodes the servers create inside the process and read only the process's parameter file: without it they run on defaults, silently (read back by hand, every value as planned). Nav2 1.3.13 publishes unstamped `Twist` by default, and the smoother's default repeated stamps let the base's command age reach its 0.15 s timeout. A tree whose behaviour has no server fails at load, so the stock trees would need the back-up behaviour, and with it Nav2 could reverse. Measured in two runs: all 14 lifecycle nodes active 12-19 s after the launch; a goal 8.3 m away reached in 9.6-9.7 s, 0.065-0.070 m and 0.038-0.041 rad from it by ground truth; held command age at most 0.071 s; RTF 1.00 | done | [warehouse_navigation](../src/warehouse_navigation/README.md#navigation-with-nav2-phase-3) |
 
 ## Planned features
 
@@ -560,8 +609,10 @@ Short list per milestone; details and acceptance criteria are in the plan. All *
 - **M1 Core AMR (`v1.0.0`)**
   - Phase 1's demo GIF: teleop with the RViz sensor view, recorded by the maintainer (steps in
     [exercise 7 of the Phase 1 report](phase-reports/phase-01-robot-description.md#exercise-7-run-the-demo-with-windows-and-record-the-gif)).
-  - Nav2 navigation (Phase 3a); keep-out and speed zones, a collision monitor and robot
-    revision C (Phase 3b).
+  - The rest of Phase 3a (Nav2 itself runs since S2a): RViz's navigation view and the checks by
+    hand (S2b), a command line for named locations (S3a), a frozen goal set with a benchmark
+    (S3b), the physics step (S4), twist_mux and a manual mode for teleop (S5). Phase 3b:
+    keep-out and speed zones, the safety fields measured, and robot revision C.
   - Custom interfaces and a behaviour-tree task executor (Phase 4a).
   - Order manager, order generator and KPI tracking (Phase 4b).
   - Operator dashboard v1, our own Flask web app: overview, orders, live map, live updates

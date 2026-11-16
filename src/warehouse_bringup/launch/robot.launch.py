@@ -25,6 +25,11 @@ localization:=slam adds slam_toolbox, localization:=amcl adds AMCL starting at t
 from the system scope: sim.launch.py starts the map server with it, and on its own this file
 needs `ros2 launch warehouse_navigation map_server.launch.py` next to it.
 
+navigation:=true adds Nav2 with AMCL, both in one container (warehouse_navigation's
+navigation.launch.py, parameters from params_file). Nav2 always localizes with AMCL, so it
+implies localization:=amcl and needs the map on /map too. It refuses localization:=slam: both
+would publish map -> odom.
+
 Every node runs inside PushROSNamespace(/<namespace>) with /tf and /tf_static remapped to the
 relative tf and tf_static, so each robot keeps its own TF tree in /<namespace>/tf with
 unprefixed frames (plan D7). Phase 9 includes this file once per robot.
@@ -41,13 +46,16 @@ from launch.actions import DeclareLaunchArgument
 from launch.actions import GroupAction
 from launch.actions import IncludeLaunchDescription
 from launch.actions import OpaqueFunction
+from launch.conditions import evaluate_condition_expression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EqualsSubstitution
 from launch.substitutions import LaunchConfiguration
+from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.actions import PushROSNamespace
 from launch_ros.actions import SetParameter
 from launch_ros.actions import SetRemap
+from launch_ros.substitutions import FindPackageShare
 import xacro
 
 
@@ -71,17 +79,34 @@ def include(package, launch_file, arguments=None):
                                     launch_arguments=(arguments or {}).items())
 
 
-def launch_setup(context):
-    namespace = LaunchConfiguration('namespace').perform(context).strip('/')
-    hardware = LaunchConfiguration('hardware').perform(context)
-    localization = LaunchConfiguration('localization').perform(context)
-
-    # Refuse before anything starts: SLAM and AMCL would wait for scans forever.
+def check_modes(hardware, localization, navigation):
+    """Raise a ValueError naming the arguments if this combination cannot run."""
+    # Mock hardware has no lidar: SLAM, AMCL and Nav2 would wait for scans forever.
+    if hardware == 'mock' and navigation:
+        raise ValueError(
+            'navigation:=true needs the lidar (AMCL, the costmaps and the collision monitor '
+            'read the scan), and hardware:=mock has none: mock hardware simulates the wheels '
+            'and the IMU only. Use hardware:=gz, or leave navigation at false.')
     if hardware == 'mock' and localization != 'none':
         raise ValueError(
             f'localization:={localization} needs the lidar, and hardware:=mock has none: mock '
             'hardware simulates the wheels and the IMU only. Use hardware:=gz, or leave '
             'localization at none.')
+    if navigation and localization == 'slam':
+        raise ValueError(
+            'navigation:=true localizes with AMCL on the saved map, and localization:=slam '
+            'would run slam_toolbox next to it: both publish map -> odom. Leave localization '
+            'at none or amcl with navigation:=true.')
+
+
+def launch_setup(context):
+    namespace = LaunchConfiguration('namespace').perform(context).strip('/')
+    hardware = LaunchConfiguration('hardware').perform(context)
+    localization = LaunchConfiguration('localization').perform(context)
+    navigation = evaluate_condition_expression(context, [LaunchConfiguration('navigation')])
+
+    # Refuse before anything starts.
+    check_modes(hardware, localization, navigation)
 
     # Build the URDF here, so a mistake fails the launch at once. The xacro refuses
     # hardware:=real (reserved for a future SystemInterface) with a clear message.
@@ -140,16 +165,25 @@ def launch_setup(context):
         include('warehouse_navigation', 'ekf.launch.py'),
     ]
 
-    # Localization, like the EKF, runs after the /tf remaps: it reads this robot's scan and
-    # tf, and publishes map -> odom on this robot's tf (plan F5, F6). The argument holds one
-    # value, so slam_toolbox and AMCL never run together.
-    if localization == 'slam':
+    # Localization and navigation, like the EKF, run after the /tf remaps: they read this
+    # robot's scan and tf, and publish map -> odom on this robot's tf (plan F5, F6). The
+    # spawn pose is a pose in the map frame, because the map frame is the Gazebo world frame
+    # (plan P2-D2): AMCL starts where the robot stands. One of the three at most, so only one
+    # node publishes map -> odom.
+    spawn_pose = {name: LaunchConfiguration(name) for name in ('x', 'y', 'yaw')}
+    if navigation:
+        # AMCL and the Nav2 servers in one container (plan D20). navigation.launch.py needs the
+        # namespace this group pushed, to name the container and the parameter sections.
+        actions.append(include('warehouse_navigation', 'navigation.launch.py', {
+            'namespace': namespace,
+            'params_file': LaunchConfiguration('params_file'),
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            **spawn_pose,
+        }))
+    elif localization == 'slam':
         actions.append(include('warehouse_navigation', 'slam.launch.py'))
     elif localization == 'amcl':
-        # The spawn pose is a pose in the map frame, because the map frame is the Gazebo world
-        # frame (plan P2-D2): AMCL starts where the robot stands.
-        actions.append(include('warehouse_navigation', 'localization.launch.py', {
-            name: LaunchConfiguration(name) for name in ('x', 'y', 'yaw')}))
+        actions.append(include('warehouse_navigation', 'localization.launch.py', spawn_pose))
     return [GroupAction(actions)]
 
 
@@ -177,5 +211,16 @@ def generate_launch_description():
             description='none: odometry only; slam: map with slam_toolbox; amcl: localize with '
                         'AMCL on the map on /map (start map_server.launch.py too). Needs '
                         'hardware:=gz (a lidar)'),
+        DeclareLaunchArgument(
+            'navigation', default_value='false',
+            description='true: Nav2 with AMCL, both in one container (implies '
+                        'localization:=amcl, refuses slam; start map_server.launch.py too). '
+                        'Needs hardware:=gz (a lidar)'),
+        DeclareLaunchArgument(
+            'params_file',
+            default_value=PathJoinSubstitution(
+                [FindPackageShare('warehouse_navigation'), 'config', 'nav2_params.yaml']),
+            description='Nav2 parameter file for navigation:=true. Default: '
+                        'warehouse_navigation/config/nav2_params.yaml'),
         OpaqueFunction(function=launch_setup),
     ])

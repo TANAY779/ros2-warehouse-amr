@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_navigation</name>
   <version>0.1.0</version>
-  <description>Localization and navigation of the warehouse AMR: the robot_localization EKF (Phase 1), mapping with slam_toolbox, AMCL on the saved map (Phase 2), later Nav2.</description>
+  <description>Localization and navigation of the warehouse AMR: the robot_localization EKF (Phase 1), mapping with slam_toolbox, AMCL on the saved map (Phase 2), Nav2 (Phase 3).</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -20,6 +20,28 @@
   <!-- map_server, and map_saver_cli to save a map (maps/README.md) -->
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <!-- navigation.launch.py: the robot's footprint from robot.yaml (warehouse_description's
+       robot_config), Nav2's navigation_launch.py, its ReplaceString and RewrittenYaml, and the
+       container that holds AMCL and the Nav2 servers -->
+  <exec_depend>warehouse_description</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_common</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <!-- The servers navigation_launch.py loads and the plugins config/nav2_params.yaml names -->
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_costmap_2d</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+  <exec_depend>nav2_rotation_shim_controller</exec_depend>
+  <exec_depend>nav2_route</exec_depend>
+  <exec_depend>nav2_smac_planner</exec_depend>
+  <exec_depend>nav2_smoother</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

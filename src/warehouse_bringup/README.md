@@ -8,8 +8,8 @@ driving the robot by keyboard ([Driving with teleop](#driving-with-teleop)).
 
 | File | What it does |
 |---|---|
-| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only; `gz_gui` and `physics_step` go to `warehouse_gazebo`'s `gazebo.launch.py`), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)), the map server (system scope, `localization:=amcl` only) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
-| `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners, the EKF, and slam_toolbox or AMCL ([Mapping and localization](#mapping-and-localization)). Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
+| `launch/sim.launch.py` | Everything for one simulated robot: Gazebo (world scope, `hardware:=gz` only; `gz_gui` and `physics_step` go to `warehouse_gazebo`'s `gazebo.launch.py`), the robot (`robot.launch.py`) at its spawn pose ([Where the robot spawns](#where-the-robot-spawns)), the map server (system scope, `localization:=amcl` only, which `navigation:=true` implies) and RViz. Sets `use_sim_time` for every node with `SetParameter`. RViz runs in the robot's absolute namespace with the same `/tf` remaps as the robot |
+| `launch/robot.launch.py` | The robot scope (plan §2.3), inside `PushROSNamespace(/<namespace>)` with `/tf` and `/tf_static` remapped to the namespace: `robot_state_publisher`, the controller manager (in Gazebo, or `ros2_control_node` for mock hardware), the three controller spawners, the EKF, and slam_toolbox or AMCL ([Mapping and localization](#mapping-and-localization)) or Nav2 with AMCL ([Navigation with Nav2](#navigation-with-nav2)). Sets `use_sim_time` for its own nodes, so it also runs on its own. The namespace is absolute because the gz topic names in the URDF are: an enclosing namespace must not move the ROS side away from them. Phase 9 includes it once per robot |
 | `rviz/robot.rviz` | RViz view of one robot: model, TF, scan (best effort), EKF and wheel odometry. Topic names are relative, so they resolve in the namespace RViz runs in. The TF display starts with the frames of the visual-only parts hidden (shell, bumpers, tote tray, stop button, status light, lidar mount, wheel hubs); tick them under TF > Frames |
 | `rviz/map.rviz` | RViz view of the map, used instead of `robot.rviz` when `localization` is not `none`: fixed frame `map`, the whole hall from above, the map (`/map`, transient local), scan, model, TF, AMCL's particle cloud and pose, the ground-truth pose (magenta arrow) and the "2D Pose Estimate" tool on the relative `initialpose` |
 | `warehouse_bringup/hold_to_drive.py` | The teleop window's logic: which command to send for the keys held, and when. Plain Python, no Qt and no ROS |
@@ -44,6 +44,9 @@ ros2 launch warehouse_bringup sim.launch.py hardware:=mock
 ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam
 ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl
 
+# Navigate with Nav2, localized by AMCL (Gazebo only)
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
+
 # World and robot separately, as Phase 9 will do once per robot (two terminals)
 ros2 launch warehouse_gazebo gazebo.launch.py headless:=true
 ros2 launch warehouse_bringup robot.launch.py namespace:=robot1
@@ -52,10 +55,10 @@ ros2 launch warehouse_bringup robot.launch.py namespace:=robot1
 In the warehouse, RViz (fixed frame `odom`) shows the scan outlining the walls and the shelf
 plinths.
 
-`robot.launch.py` takes the same `namespace`, `hardware`, `use_sim_time`, `x`, `y`, `yaw` and
-`localization` arguments as `sim.launch.py` (table below); it does not start Gazebo, the map
-server or RViz. It does not know the world either, so it does not read the registry: its `x`,
-`y` and `yaw` default to `0.0`.
+`robot.launch.py` takes the same `namespace`, `hardware`, `use_sim_time`, `x`, `y`, `yaw`,
+`localization`, `navigation` and `params_file` arguments as `sim.launch.py` (table below); it
+does not start Gazebo, the map server or RViz. It does not know the world either, so it does
+not read the registry: its `x`, `y` and `yaw` default to `0.0`.
 
 | Argument | Default | Meaning |
 |---|---|---|
@@ -70,6 +73,8 @@ server or RViz. It does not know the world either, so it does not read the regis
 | `x`, `y`, `yaw` | empty | Spawn pose in the world, in m and rad (`gz` only). Each one not given comes from the location registry, or is 0: [Where the robot spawns](#where-the-robot-spawns) |
 | `localization` | `none` | `none` (odometry only), `slam` (map with slam_toolbox) or `amcl` (localize on `map` with AMCL). Needs `hardware:=gz`: [Mapping and localization](#mapping-and-localization) |
 | `map` | `warehouse_navigation/maps/warehouse.yaml` | The map `localization:=amcl` serves on `/map`, a `map_server` YAML file (`sim.launch.py` only) |
+| `navigation` | `false` | `true`: Nav2 drives the robot to goal poses, with AMCL in the same container. Implies `localization:=amcl`, refuses `slam`. Needs `hardware:=gz`: [Navigation with Nav2](#navigation-with-nav2) |
+| `params_file` | `warehouse_navigation/config/nav2_params.yaml` | Nav2's parameter file for `navigation:=true`, for experiments with a copy. A file that does not exist stops the launch before Gazebo starts |
 
 ## Where the robot spawns
 
@@ -167,6 +172,61 @@ ros2 lifecycle get /map_server            # localization:=amcl: active
 ros2 lifecycle get /robot1/amcl           # localization:=amcl: active
 ros2 topic info -v /robot1/tf             # publishers: robot_state_publisher, ekf_filter_node, and slam_toolbox or amcl
 ```
+
+## Navigation with Nav2
+
+`navigation:=true` adds Nav2 to the robot: give it a goal pose on the map and it drives there.
+AMCL localizes it, so `navigation:=true` implies `localization:=amcl`. `sim.launch.py` sets it
+before anything starts, so the map server starts and the map file is checked as for AMCL, and
+logs:
+
+```text
+[INFO] [launch.user]: navigation:=true runs AMCL: localization:=amcl, with the map server serving the map:= file
+```
+
+| | `localization:=amcl` | `navigation:=true` |
+|---|---|---|
+| Robot scope (`/robot1`) | `amcl` and `lifecycle_manager_localization`, two processes | one process, `nav2_container`: AMCL, its manager, the ten Nav2 servers and `lifecycle_manager_navigation` |
+| System scope (`/`) | `map_server`, `lifecycle_manager_map` | the same |
+| RViz | `map.rviz` | `map.rviz` (stage S2b adds a navigation view) |
+
+`warehouse_navigation`'s README explains what runs, how a goal becomes motion and how the
+parameters reach the nodes ([Navigation with Nav2](../warehouse_navigation/README.md#navigation-with-nav2-phase-3)).
+`params_file:=` runs Nav2 with another parameter file, for example a copy of
+`warehouse_navigation/config/nav2_params.yaml` with one value changed; it must be in the same
+style (plain node keys, `<robot_namespace>`).
+
+See it:
+
+```bash
+ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
+# in a second terminal, once `ros2 lifecycle get` shows every node active [3] (within 20 s):
+ros2 action send_goal /robot1/navigate_to_pose nav2_msgs/action/NavigateToPose \
+  "{pose: {header: {frame_id: map}, pose: {position: {x: 8.2, y: 1.5}, orientation: {w: 1.0}}}}"
+```
+
+The robot drives the 8.3 m to (8.2, 1.5), across the open floor south of the shelves, and stops
+within 0.10 m and 0.10 rad of the goal by AMCL's estimate. Measured in headless Gazebo on
+2026-11-16, two runs: 9.6 s and 9.7 s, then 0.070 m and 0.065 m from the goal by ground truth.
+
+Nav2 needs the lidar, and AMCL cannot share the robot with slam_toolbox, so these two stop the
+launch before anything starts:
+
+```text
+[ERROR] [launch]: Caught exception in launch (see debug for traceback): navigation:=true needs
+the lidar (AMCL, the costmaps and the collision monitor read the scan), and hardware:=mock has
+none: mock hardware simulates the wheels and the IMU only. Use hardware:=gz, or leave navigation
+at false.
+[ERROR] [launch]: Caught exception in launch (see debug for traceback): navigation:=true
+localizes with AMCL on the saved map, and localization:=slam would run slam_toolbox next to it:
+both publish map -> odom. Leave localization at none or amcl with navigation:=true.
+```
+
+`robot.launch.py navigation:=true` on its own needs the map server next to it, as for AMCL.
+
+**Teleop while Nav2 runs.** Until stage S5 adds twist_mux, the teleop window and Nav2's
+collision monitor both publish on `/robot1/cmd_vel`, and teleop's commands do not pass the
+collision monitor. Cancel a goal (Ctrl-C on `send_goal`) before driving by hand.
 
 ## Driving with teleop
 
@@ -391,6 +451,11 @@ ros2 run rqt_tf_tree rqt_tf_tree --ros-args -r /tf:=/robot1/tf -r /tf_static:=/r
   hang described in the warehouse_gazebo README. Launch still stops everything.
 - `ros2 lifecycle get` right after a launch may answer `Node not found`: discovery has not
   finished. Run it again a second later.
+- With `navigation:=true`, a Ctrl-C ends with launch escalating `nav2_container` to SIGTERM (or
+  SIGKILL) and reporting exit code -11 (a segmentation fault) or -9: the container does not finish
+  its own shutdown. Every process still stops, 6-11 s after the Ctrl-C.
+  `warehouse_navigation`'s README lists this and Nav2's other harmless messages
+  ([Things that look wrong but are not](../warehouse_navigation/README.md#things-that-look-wrong-but-are-not)).
 
 ## Prerequisites
 

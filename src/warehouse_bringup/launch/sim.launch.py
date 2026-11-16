@@ -23,10 +23,16 @@ Simulate the warehouse AMR: Gazebo (or mock hardware), one robot and RViz.
   ros2 launch warehouse_bringup sim.launch.py hardware:=mock     # no simulator (CI)
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=slam   # make a map
   ros2 launch warehouse_bringup sim.launch.py world:=warehouse localization:=amcl   # use it
+  ros2 launch warehouse_bringup sim.launch.py world:=warehouse navigation:=true gz_gui:=false
 
 localization:=slam runs slam_toolbox in the robot's namespace; localization:=amcl runs AMCL
 there and the map server, which serves the map:= file on /map for all robots, in the system
 scope (plan F5, F6). The two never run together: each publishes map -> odom.
+
+navigation:=true runs Nav2 for the robot, with AMCL in the same container (robot.launch.py,
+warehouse_navigation's navigation.launch.py; parameters from params_file). It implies
+localization:=amcl: this file sets it, so the map server and the map check run as for AMCL.
+It refuses localization:=slam, and robot.launch.py refuses it with hardware:=mock.
 
 gz_gui and physics_step go to warehouse_gazebo's gazebo.launch.py. gz_gui:=false runs the
 Gazebo server without its window and keeps RViz (the window costs more real time than RViz,
@@ -53,6 +59,7 @@ from launch.actions import IncludeLaunchDescription
 from launch.actions import LogInfo
 from launch.actions import OpaqueFunction
 from launch.actions import SetLaunchConfiguration
+from launch.conditions import evaluate_condition_expression
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import AndSubstitution
@@ -137,6 +144,40 @@ def resolve_spawn_pose(context):
     return [SetLaunchConfiguration(name, str(value)) for name, value in pose.items()] + [
         LogInfo(msg=f'/{robot} spawns at x {pose["x"]:g} m, y {pose["y"]:g} m, '
                     f'yaw {pose["yaw"]:g} rad ({source})')]
+
+
+def resolve_navigation(context):
+    """
+    With navigation:=true, check its arguments and set localization:=amcl, before Gazebo starts.
+
+    Nav2 localizes with AMCL, so navigation:=true implies localization:=amcl; setting the
+    argument here makes the map server, check_map and RViz's map view follow, as they do for
+    AMCL alone. robot.launch.py checks the same combinations, for when it runs on its own; here
+    they stop the launch before Gazebo starts (an error raised while gz sim is starting leaves
+    the Gazebo server running).
+    """
+    if not evaluate_condition_expression(context, [LaunchConfiguration('navigation')]):
+        return []
+    # Mock hardware: robot.launch.py refuses navigation, before it starts anything.
+    if LaunchConfiguration('hardware').perform(context) != 'gz':
+        return []
+    localization = LaunchConfiguration('localization').perform(context)
+    if localization == 'slam':
+        raise ValueError(
+            'navigation:=true localizes with AMCL on the saved map, and localization:=slam '
+            'would run slam_toolbox next to it: both publish map -> odom. Leave localization '
+            'at none or amcl with navigation:=true.')
+    params_file = LaunchConfiguration('params_file').perform(context)
+    if not os.path.isfile(params_file):
+        # navigation.launch.py checks this too, but only once Gazebo is running.
+        raise FileNotFoundError(
+            f'params_file:={params_file} does not exist. Give a Nav2 parameter file, such as '
+            'a copy of warehouse_navigation/config/nav2_params.yaml, or leave params_file out')
+    if localization == 'amcl':
+        return []
+    return [SetLaunchConfiguration('localization', 'amcl'),
+            LogInfo(msg='navigation:=true runs AMCL: localization:=amcl, with the map server '
+                        'serving the map:= file')]
 
 
 def check_map(context):
@@ -234,6 +275,15 @@ def generate_launch_description():
                 [navigation_share, 'maps', 'warehouse.yaml']),
             description='Map for localization:=amcl, a map_server YAML file. Default: the '
                         'warehouse map saved from slam_toolbox'),
+        DeclareLaunchArgument(
+            'navigation', default_value='false',
+            description='true: Nav2 for the robot, with AMCL in the same container; implies '
+                        'localization:=amcl and refuses slam. Needs hardware:=gz (a lidar)'),
+        DeclareLaunchArgument(
+            'params_file', default_value=PathJoinSubstitution(
+                [navigation_share, 'config', 'nav2_params.yaml']),
+            description='Nav2 parameter file for navigation:=true, for experiments. Default: '
+                        'warehouse_navigation/config/nav2_params.yaml'),
     ]
 
     # World scope: the simulator and its /clock (hardware:=gz only). gazebo.launch.py checks
@@ -262,11 +312,14 @@ def generate_launch_description():
             'y': LaunchConfiguration('y'),
             'yaw': LaunchConfiguration('yaw'),
             'localization': localization,
+            'navigation': LaunchConfiguration('navigation'),
+            'params_file': LaunchConfiguration('params_file'),
         }.items(),
     )
 
-    # System scope: the map server, one for all robots, in / (localization:=amcl only). It
-    # comes after the robot, so that robot.launch.py refuses mock hardware before it starts.
+    # System scope: the map server, one for all robots, in / (localization:=amcl, which
+    # navigation:=true implies). It comes after the robot, so that robot.launch.py refuses mock
+    # hardware before it starts.
     map_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([navigation_share, 'launch', 'map_server.launch.py'])),
@@ -291,6 +344,9 @@ def generate_launch_description():
         # stops the launch before anything runs (an error raised while gz sim is starting
         # leaves the Gazebo server running).
         OpaqueFunction(function=resolve_spawn_pose),
+        # The same for navigation:=true's arguments. It may set localization:=amcl, so it comes
+        # before check_map.
+        OpaqueFunction(function=resolve_navigation),
         # The same for the map file of localization:=amcl.
         OpaqueFunction(function=check_map),
         # Every node launched below uses one clock: Gazebo's /clock or the wall clock.

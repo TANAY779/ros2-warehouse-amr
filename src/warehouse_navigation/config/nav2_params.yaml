@@ -1,0 +1,420 @@
+# Nav2 of the warehouse AMR: the ten servers of nav2_bringup's navigation_launch.py and both
+# costmaps (plan Phase 3, stage S2a). AMCL keeps its own file, amcl.yaml.
+#
+# Nav2 1.3.13 (Jazzy). A key not listed keeps the node's built-in default. A listed key either
+# changes a default, with the reason next to it, or says a value worth knowing ("default"). Some
+# values must agree with other files, and nothing checks that automatically (ADR-008): the
+# outline and its padding with warehouse_description/config/robot.yaml; the speeds and
+# accelerations stay below the hard limits of warehouse_description/config/controllers.yaml
+# (1.2 / -0.3 m/s, 0.8 and -1.5 m/s², 2.0 rad/s, 3.0 rad/s²); every velocity publisher sends at
+# least every 0.1 s, because diff_drive_controller brakes when its newest command is 0.15 s old.
+# After a change, read the values back from the running nodes (`ros2 param get`).
+#
+# The keys are plain node names (controller_server:, not /**/controller_server: as in this
+# project's other files): Nav2's own convention for its multi-robot files. Before any node reads
+# this file, launch/navigation.launch.py processes it:
+#   1. <robot_namespace> becomes the robot's namespace, /robot1. Topics that a costmap layer
+#      reads resolve under the costmap node (/robot1/local_costmap/...), so they must be absolute.
+#   2. footprint (from robot.yaml) and the two behaviour-tree paths are written in by their full
+#      parameter paths.
+#   3. The whole file is wrapped under the namespace (robot1: controller_server: ...), so that
+#      each key matches its node, /robot1/controller_server.
+# The container that holds the servers also gets the processed file on its own command line.
+# The two costmaps are nodes that the controller and planner servers create inside that process,
+# and such nodes read only the process's parameter file: without it they would run on their
+# defaults, silently.
+#
+# Not in this file yet: costmap filters for the keep-out and speed zones (stage S6b), the corner
+# lidars (S7), and twist_mux in front of the collision monitor (S5).
+
+# Runs the behaviour trees: plan, follow, recover.
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    # Default base_link. Every section uses base_footprint, the frame AMCL, the EKF and
+    # diff_drive_controller use; base_link is the same point in x and y (on the drive axle).
+    robot_base_frame: base_footprint
+    odom_topic: odom                 # default, relative: the EKF's /robot1/odom (Nav2's sample has the absolute /odom)
+    bt_loop_duration: 10             # ms, default
+    default_server_timeout: 20       # ms, default
+    wait_for_service_timeout: 1000   # ms, default
+    navigators: ["navigate_to_pose", "navigate_through_poses"]   # default, written out
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    # Our copies of Nav2's two default trees, without the BackUp recovery, so Nav2 never drives
+    # backwards (behavior_trees/, plan P3-D12). The launch writes in their installed paths; ""
+    # means the launch did not, and the navigator then fails to configure.
+    default_nav_to_pose_bt_xml: ""
+    default_nav_through_poses_bt_xml: ""
+    # The error codes the trees report; listed, so the navigator does not warn that they are unset.
+    error_code_names: ["compute_path_error_code", "follow_path_error_code"]
+
+# Follows the path: the Rotation Shim turns the robot in place, Regulated Pure Pursuit drives.
+controller_server:
+  ros__parameters:
+    # Hz, default. Part of the safety fields' reaction time: a command reaches the collision
+    # monitor at most 0.05 s after the controller computes it (plan §3.4).
+    controller_frequency: 20.0
+    # Default false in 1.3.13. Publish geometry_msgs/TwistStamped: diff_drive_controller accepts
+    # only stamped commands, and judges a command's age from its stamp. The velocity smoother,
+    # the collision monitor, the docking server and the behavior server set it too.
+    enable_stamped_cmd_vel: true
+    odom_topic: odom                 # default, relative: /robot1/odom
+    speed_limit_topic: speed_limit   # default, relative: /robot1/speed_limit (the speed zones of stage S6b)
+    failure_tolerance: 0.3           # s the controller may fail before the goal fails (default 0.0: at once); Nav2's sample
+    progress_checker_plugins: ["progress_checker"]   # default
+    goal_checker_plugins: ["goal_checker"]           # default
+    controller_plugins: ["FollowPath"]               # default: the controller id the behaviour trees ask for
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # Defaults: a goal fails when the robot moves less than 0.5 m in 10 s.
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # m (default 0.25). Pick poses face the shelves for the cameras of Phase 7, and AMCL
+      # keeps within 0.10 m of the truth. It must stay above the distance the robot covers in
+      # one control cycle at full speed: 1.0 m/s / 20 Hz = 0.05 m (ROS 2 skill,
+      # navigation.md §9, goal tolerance and oscillation).
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.10       # rad (default 0.25)
+      stateful: true                 # default: once the position is reached, only the heading is checked
+    FollowPath:
+      # The Rotation Shim turns in place until the robot faces the path, then hands over to
+      # Regulated Pure Pursuit, and at the goal turns to the goal's heading (plan D6, P3-D5).
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      angular_dist_threshold: 0.785  # rad, default: turn in place first if the path points more than 45° away
+      forward_sampling_distance: 0.5 # m, default: where along the path that direction is taken
+      # rad/s (default 1.8): the operating limit for turning in place (plan §2.6). The shim and
+      # RPP share this key (both read FollowPath.rotate_to_heading_angular_vel).
+      rotate_to_heading_angular_vel: 1.0
+      # rad/s² (default 3.2, above the base's 3.0): the operating limit, equal to the velocity
+      # smoother's. Shared by the shim and RPP like the key above.
+      max_angular_accel: 2.5
+      simulate_ahead_time: 1.0       # s, default: the turn is checked for collisions this far ahead
+      rotate_to_goal_heading: true   # default false: the shim also owns the last turn, to the goal's heading
+      closed_loop: true              # default
+      # Regulated Pure Pursuit, the primary controller: start values; S3b and S4 measure them.
+      desired_linear_vel: 1.0        # m/s (default 0.5): open floor; the speed zones of S6b lower it through speed_limit
+      use_velocity_scaled_lookahead_dist: true   # default false: look further ahead at higher speed
+      lookahead_time: 1.2            # s (default 1.5): lookahead = speed x 1.2 s, between the two limits below
+      min_lookahead_dist: 0.4        # m (default 0.3)
+      max_lookahead_dist: 1.2        # m (default 0.9). A longer lookahead cuts corners more
+      use_rotate_to_heading: false   # default true: the shim turns in place, so one controller owns that motion
+      allow_reversing: false         # default: Nav2 never drives backwards (plan P3-D12)
+      # Default: check the padded footprint against the local costmap along the path ahead,
+      # up to 1.0 s ahead, and stop instead of driving into an obstacle.
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      use_regulated_linear_velocity_scaling: true   # default: slow down in tight curves
+      # m (default 0.9): below this curve radius the robot slows down. 1.0 m = 1.0 m/s / 1.0 rad/s,
+      # so in a curve the turn rate stays within the operating limit of 1.0 rad/s.
+      regulated_linear_scaling_min_radius: 1.0
+      regulated_linear_scaling_min_speed: 0.25   # m/s, default
+      use_cost_regulated_linear_velocity_scaling: true   # default: slow down close to obstacles
+      inflation_cost_scaling_factor: 3.0   # default; must equal the costmaps' cost_scaling_factor
+      approach_velocity_scaling_dist: 0.6  # m, default: slow down over the last 0.6 m
+      min_approach_linear_velocity: 0.05   # m/s, default
+
+# Plans the path from the robot to the goal on the global costmap.
+planner_server:
+  ros__parameters:
+    planner_plugins: ["GridBased"]   # default: the planner id the behaviour trees ask for
+    GridBased:
+      # Smac 2D: A* on the grid, for robots that turn in place and fit a circle (its README).
+      # Default NavFn. The controller still checks the real, rectangular footprint.
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      tolerance: 0.125               # m, default: how far from an unreachable goal a path may end
+      allow_unknown: false           # default true: the map is complete; never plan through unknown cells
+      max_planning_time: 2.0         # s, default
+      cost_travel_multiplier: 2.0    # default 1.0: avoid inflated cells harder, so paths stay in aisle centres
+      use_final_approach_orientation: false   # default
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      global_frame: map              # default
+      robot_base_frame: base_footprint   # default base_link
+      # The one shared map of the system scope. The default is <server's namespace>/map, here
+      # /robot1/map, where nothing publishes.
+      map_topic: /map
+      update_frequency: 1.0          # Hz (default 5.0): Nav2's sample; the trees replan at 1 Hz
+      publish_frequency: 1.0         # Hz, default
+      resolution: 0.05               # m (default 0.1): the map's resolution
+      track_unknown_space: true      # default false: cells outside the map stay unknown, and the planner avoids them
+      # Written in by the launch from robot.yaml: the outline's four corners, (±0.32, ±0.24) m.
+      # "[]" is the default, so reading [] back from the node means the injection failed.
+      footprint: "[]"
+      # m (default 0.01): robot.yaml's padding. Reading back 0.009999999776482582 (0.01 as a
+      # float) means this section did not reach the node.
+      footprint_padding: 0.04
+      plugins: ["static_layer", "voxel_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true   # default: /map is latched (transient local)
+      # A voxel layer, not a 2D obstacle layer: each cell keeps a column of 16 voxels of 5 cm,
+      # and a ray clears only the voxels it passes. With the corner lidars of stage S7, a low
+      # obstacle that the puck's higher plane passes over stays marked; a 2D layer would let the
+      # puck's rays erase it.
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        origin_z: 0.0                # m, default
+        z_resolution: 0.05           # m (default 0.2)
+        z_voxels: 16                 # default 10; 16 is the most a column holds: 16 x 0.05 = 0.8 m
+        max_obstacle_height: 0.8     # m (default 2.0): the top of the column
+        mark_threshold: 0            # default: one marked voxel makes the cell an obstacle
+        observation_sources: "puck"  # one string, names separated by spaces; S7 adds corner_fl corner_rr
+        puck:
+          topic: <robot_namespace>/scan   # absolute: a relative scan would be /robot1/global_costmap/scan
+          data_type: "LaserScan"     # default
+          marking: true              # default
+          clearing: true             # default false: rays clear the cells they pass through
+          # Default false. A ray with no return comes from Gazebo as inf: clear along it up to
+          # raytrace_max_range instead of dropping it.
+          inf_is_valid: true
+          # m (default 0.0, which drops every point above the floor, so nothing would be marked).
+          max_obstacle_height: 0.8
+          obstacle_max_range: 4.0    # m (default 2.5): mark obstacles up to 4 m away
+          raytrace_max_range: 5.0    # m (default 3.0): clear up to 5 m
+      # Inflation: cost falls with the distance from an obstacle (tune the radius first, then
+      # the scaling factor: ROS 2 skill, navigation.md §3). With these values the cost is about
+      # 149 at the padded corner radius (0.46 m) and 0 beyond 0.70 m, so the centreline of a
+      # 1.6 m pick aisle, 0.80 m from each face, costs nothing.
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.70       # m (default 0.55)
+        cost_scaling_factor: 3.0     # default 10.0; RPP's inflation_cost_scaling_factor must equal it
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      global_frame: odom             # default map: odom is smooth, without AMCL's corrections (Nav2's sample)
+      robot_base_frame: base_footprint   # default base_link
+      map_topic: /map                # as above, although this costmap has no static layer
+      rolling_window: true           # default false: the window moves with the robot
+      # m (default 5): ±2 m round the robot, more than RPP's longest lookahead (1.2 m) plus the
+      # footprint.
+      width: 4
+      height: 4
+      resolution: 0.05               # m (default 0.1)
+      update_frequency: 10.0         # Hz (default 5.0): the scan rate
+      publish_frequency: 2.0         # Hz (default 1.0): for RViz
+      footprint: "[]"                # written in by the launch, as in the global costmap
+      footprint_padding: 0.04        # m (default 0.01): robot.yaml's padding
+      plugins: ["voxel_layer", "inflation_layer"]
+      voxel_layer:                   # as in the global costmap, with the default ranges
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 0.8
+        mark_threshold: 0
+        observation_sources: "puck"
+        puck:
+          topic: <robot_namespace>/scan   # absolute: a relative scan would be /robot1/local_costmap/scan
+          data_type: "LaserScan"
+          marking: true
+          clearing: true
+          inf_is_valid: true
+          max_obstacle_height: 0.8
+          obstacle_max_range: 2.5    # m, default: the window reaches 2 m
+          raytrace_max_range: 3.0    # m, default
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.70
+        cost_scaling_factor: 3.0
+
+# Limits speed and acceleration between the controller (cmd_vel_nav) and the collision monitor
+# (cmd_vel_smoothed): the operating limits of plan §2.6, below the base's hard limits.
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0        # Hz, default
+    enable_stamped_cmd_vel: true     # default false in 1.3.13: subscribe and publish TwistStamped
+    feedback: "OPEN_LOOP"            # default: smooth from the last command; closed loop would feed the EKF's 19 ms lag back
+    # [x, y, θ] in m/s, m/s² and rad/s, rad/s². Hard limits: 1.2 m/s, 2.0 rad/s, 0.8 and -1.5 m/s², ±3.0 rad/s².
+    max_velocity: [1.0, 0.0, 1.0]    # default [0.5, 0.0, 2.5]: 1.0 m/s open floor, 1.0 rad/s turning
+    min_velocity: [0.0, 0.0, -1.0]   # default [-0.5, 0.0, -2.5]: 0 m/s, so Nav2 never drives backwards
+    max_accel: [0.5, 0.0, 2.5]       # default [2.5, 0.0, 3.2]
+    max_decel: [-1.0, 0.0, -2.5]     # default [-2.5, 0.0, -3.2]
+    odom_topic: odom                 # default, relative; read only in closed loop
+    # s (default 1.0). When the controller stops sending, the smoother keeps its last command
+    # this long, then ramps it to zero with fresh stamps (plan §3.1).
+    velocity_timeout: 0.2
+    # Default false: the smoother repeats the stamp of its last input at 20 Hz, so the command
+    # the base holds ages towards its 0.15 s timeout and the robot brakes and drives on (stop-start
+    # driving, Nav2 issue 5857). true stamps each output with the time it was smoothed for.
+    stamp_smoothed_velocity_with_smoothing_time: true
+
+# Runs the recoveries the trees call: a turn in place and a wait.
+behavior_server:
+  ros__parameters:
+    enable_stamped_cmd_vel: true     # default false in 1.3.13; read by the behaviour plugins
+    # Hz (default 10). At 10 Hz the age of the command the base holds reaches its 0.15 s
+    # timeout (plan §3.1).
+    cycle_frequency: 20.0
+    local_costmap_topic: local_costmap/costmap_raw   # defaults, relative: /robot1/local_costmap/...
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    # Default spin, backup, drive_on_heading and wait. Only what the trees call: no backup, so
+    # Nav2 never drives backwards.
+    behavior_plugins: ["spin", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    local_frame: odom                # default
+    global_frame: map                # default
+    robot_base_frame: base_footprint # default base_link
+    max_rotational_vel: 1.0          # rad/s, default: the operating limit
+    min_rotational_vel: 0.4          # rad/s, default
+    rotational_acc_lim: 2.5          # rad/s² (default 3.2, above the base's 3.0): the operating limit
+
+# The last check before the base: stops the robot when the scan has points inside the field
+# for the commanded speed (plan §3.4, D21). It checks only the commands that pass through it,
+# and only while it is active.
+collision_monitor:
+  ros__parameters:
+    base_frame_id: base_footprint    # default
+    odom_frame_id: odom              # default
+    cmd_vel_in_topic: cmd_vel_smoothed   # default: the velocity smoother's output (S5 puts twist_mux in between)
+    cmd_vel_out_topic: cmd_vel       # default: diff_drive_controller's input
+    state_topic: collision_monitor_state   # default "" (none): publish which polygon acted
+    enable_stamped_cmd_vel: true     # default false in 1.3.13
+    # s (default 0.1). With base_shift_correction the monitor waits up to this long for
+    # odom -> base_footprint at the current time, which the EKF publishes every 20 ms.
+    transform_tolerance: 0.2
+    # s (default 2.0): a scan older than five scan periods stops the robot ("invalid source"),
+    # instead of two seconds blind.
+    source_timeout: 0.5
+    base_shift_correction: true      # default: move old scan points by the robot's motion since the scan
+    stop_pub_timeout: 1.0            # s, default: zeros are sent this long after a stop, then nothing
+    polygons: ["velocity_fields"]
+    velocity_fields:
+      type: "velocity_polygon"
+      action_type: "stop"
+      min_points: 4                  # default: points inside the field before it stops the robot
+      visualize: true                # default false: publish the active field on velocity_fields, for RViz
+      holonomic: false               # default
+      # One field per band of commanded speed v (m/s) and turn rate ω (rad/s). The monitor uses
+      # the first band that contains the command, bounds included, and keeps the previous
+      # field (with a warning) when none does: so rotate comes first (a turn in place must not
+      # match slow) and catch_all last. Each field is the footprint swept from the moment an
+      # obstacle appears to standstill, for every command in its band with |ω| ≤ 1.0, plus
+      # 0.05 m, rounded up to 1 cm. The forward length follows plan §2.6,
+      # v x 0.25 s + v² / (2 x 1.5 m/s²) + 0.05 m: 0.25 s is the reaction time (scan, monitor,
+      # the transform wait, the controller's update), 1.5 m/s² the base's braking. Computed with
+      # the plan's sweep_check.py --reaction 0.25; frame base_footprint, outline x ±0.32,
+      # y ±0.24. Each points value is one string ("[[x, y], ...]", what Nav2 1.3.13 expects);
+      # YAML joins the lines of a quoted string with a space.
+      velocity_polygons: ["rotate", "reverse", "slow", "aisle", "fast", "catch_all"]
+      # Standing still or turning in place: a 24-gon with corners 0.484 m out and sides 0.48 m
+      # out, the swept corner circle (0.40 m) plus 0.08 m. The sweep needs 0.463 m at 2.0 rad/s.
+      rotate:
+        linear_min: -0.05
+        linear_max: 0.05
+        theta_min: -2.05
+        theta_max: 2.05
+        points: "[[0.484, 0.000], [0.468, 0.125], [0.419, 0.242], [0.342, 0.342],
+                  [0.242, 0.419], [0.125, 0.468], [0.000, 0.484], [-0.125, 0.468],
+                  [-0.242, 0.419], [-0.342, 0.342], [-0.419, 0.242], [-0.468, 0.125],
+                  [-0.484, 0.000], [-0.468, -0.125], [-0.419, -0.242], [-0.342, -0.342],
+                  [-0.242, -0.419], [-0.125, -0.468], [0.000, -0.484], [0.125, -0.468],
+                  [0.242, -0.419], [0.342, -0.342], [0.419, -0.242], [0.468, -0.125]]"
+      # Backwards up to the base's 0.3 m/s (teleop only: Nav2 never reverses). Sweep: rear
+      # -0.542, front 0.427, sides 0.417.
+      reverse:
+        linear_min: -0.30
+        linear_max: -0.05
+        theta_min: -1.0
+        theta_max: 1.0
+        points: "[[0.43, 0.42], [0.43, -0.42], [-0.55, -0.42], [-0.55, 0.42]]"
+      # Up to 0.3 m/s, the speed of the slowest zones. Sweep: front 0.542, rear -0.427, sides 0.417.
+      slow:
+        linear_min: 0.05
+        linear_max: 0.30
+        theta_min: -1.0
+        theta_max: 1.0
+        points: "[[0.55, 0.42], [0.55, -0.42], [-0.43, -0.42], [-0.43, 0.42]]"
+      # Up to 0.5 m/s, the pick aisles' speed. Sweep: front 0.642, sides 0.441.
+      aisle:
+        linear_min: 0.30
+        linear_max: 0.50
+        theta_min: -1.0
+        theta_max: 1.0
+        points: "[[0.65, 0.45], [0.65, -0.45], [-0.37, -0.45], [-0.37, 0.45]]"
+      # Up to 1.0 m/s, the open floor. Sweep: front 0.997, sides 0.549.
+      fast:
+        linear_min: 0.50
+        linear_max: 1.00
+        theta_min: -1.0
+        theta_max: 1.0
+        points: "[[1.00, 0.55], [1.00, -0.55], [-0.37, -0.55], [-0.37, 0.55]]"
+      # Every other command the base can carry out (it clamps to -0.3 … 1.2 m/s and ±2.0 rad/s),
+      # for example teleop turning faster than 1.0 rad/s while driving. Sweep: front 1.183,
+      # rear -0.551, sides 0.871. In a 1.6 m pick aisle it stops the robot, by design.
+      catch_all:
+        linear_min: -1.25
+        linear_max: 1.25
+        theta_min: -2.05
+        theta_max: 2.05
+        points: "[[1.19, 0.88], [1.19, -0.88], [-0.56, -0.88], [-0.56, 0.88]]"
+    observation_sources: ["puck"]    # S7 adds corner_fl and corner_rr
+    puck:
+      type: "scan"
+      topic: scan                    # default, relative: the monitor is a server node, so /robot1/scan
+      source_timeout: 0.5            # s, as the node's
+      enabled: true                  # default
+
+# Always started by navigation_launch.py; used from Phase 5. Minimal, so that it configures: it
+# needs one dock plugin. Phase 5 completes it.
+docking_server:
+  ros__parameters:
+    enable_stamped_cmd_vel: true     # default false in 1.3.13; it publishes cmd_vel itself, past the monitor (D21)
+    base_frame: base_footprint       # default base_link
+    fixed_frame: odom                # default
+    dock_plugins: ["simple_charging_dock"]
+    simple_charging_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+      use_battery_status: false      # default true would subscribe to battery_state, which nothing publishes yet
+      use_external_detection_pose: false   # default: no dock detection yet (Phase 7)
+    # Phase 5 keeps controller.dock_collision_threshold at 0.3 m or more (the default): the
+    # docking controller ignores collisions that close to the dock, where the dock-bar keepout
+    # boxes are (plan §3.3).
+
+# Always started by navigation_launch.py; it configures without a route graph. Routes on a lane
+# graph may come in Phase 11.
+route_server:
+  ros__parameters:
+    base_frame: base_footprint       # default base_link
+    # Default AdjustSpeedLimit and ReroutingService. AdjustSpeedLimit would publish on
+    # speed_limit too, next to the speed zones' publisher (S6b). A list other than the default
+    # needs each operation's plugin.
+    operations: ["ReroutingService"]
+    ReroutingService:
+      plugin: "nav2_route::ReroutingService"
+
+# Always started by navigation_launch.py; our trees do not call it.
+smoother_server:
+  ros__parameters:
+    robot_base_frame: base_footprint # default base_link
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:                 # Nav2's sample
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: true
+
+# Drives through a list of poses, stopping at each (followWaypoints).
+waypoint_follower:
+  ros__parameters:
+    loop_rate: 20                    # Hz, default
+    stop_on_failure: false           # default true: go on to the next pose when one fails (Nav2's sample)
+    waypoint_task_executor_plugin: "wait_at_waypoint"   # default
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 200   # ms (default 0): Nav2's sample

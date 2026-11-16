@@ -4,9 +4,10 @@ project(warehouse_navigation)
 find_package(ament_cmake REQUIRED)
 
 # maps/ holds the saved warehouse map and its README. The README is always there, so the
-# folder installs even before a map has been saved.
+# folder installs even before a map has been saved. behavior_trees/ holds Nav2's trees as this
+# robot runs them; navigation.launch.py gives bt_navigator their installed paths.
 install(
-  DIRECTORY config launch maps
+  DIRECTORY behavior_trees config launch maps
   DESTINATION share/${PROJECT_NAME}
 )
 
