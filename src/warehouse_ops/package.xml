@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>warehouse_ops</name>
+  <version>0.1.0</version>
+  <description>Operator tools of the warehouse AMR: navigate sends the robot to named locations of the location registry, or to poses on the map, through Nav2's actions.</description>
+  <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
+  <license>Apache-2.0</license>
+  <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
+
+  <!-- locations.py: the installed location registry (share/warehouse_layout/generated) -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>warehouse_layout</exec_depend>
+
+  <!-- navigate: BasicNavigator, the AMCL and lifecycle checks, the goals and their results -->
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
