@@ -3,7 +3,7 @@
 <package format="3">
   <name>warehouse_system_tests</name>
   <version>0.1.0</version>
-  <description>Simulation test tools of the warehouse AMR: drive_route drives a route of the location registry, evaluate_localization measures AMCL and odometry against ground truth from a bag, map_timelapse turns a mapping bag into a GIF, and measure_load samples the CPU, memory and Gazebo's real-time factor of a run.</description>
+  <description>Simulation test tools of the warehouse AMR: drive_route drives a route of the location registry, evaluate_localization measures AMCL and odometry against ground truth from a bag, map_timelapse turns a mapping bag into a GIF, measure_load samples the CPU, memory and Gazebo's real-time factor of a run, goal_set writes the frozen goal set of the navigation benchmark, nav_benchmark drives it with Nav2 and records the run, and evaluate_navigation judges that run from its bag.</description>
   <maintainer email="tanay.baisware@gmail.com">Tanay Baisware</maintainer>
   <license>Apache-2.0</license>
   <url type="repository">https://github.com/TANAY779/ros2-warehouse-amr</url>
@@ -31,12 +31,27 @@
   <exec_depend>rosbag2_storage_mcap</exec_depend>
   <exec_depend>rosidl_runtime_py</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
-  <!-- The location registry (routes) and the [PASS] / [FAIL] lines (RuleResult) -->
+  <!-- The location registry (routes) and the [PASS] / [FAIL] lines (RuleResult); goal_set
+       reads the layout model, rasterize's ideal map and the map reader from it -->
   <exec_depend>warehouse_layout</exec_depend>
   <!-- measure_load reads Gazebo's /world/<world>/stats through the gz-transport Python
        bindings (gz.transport13, gz.msgs10), not through ROS -->
   <exec_depend>gz_msgs_vendor</exec_depend>
   <exec_depend>gz_transport_vendor</exec_depend>
+
+  <!-- The navigation benchmark (plan S3b, section 4.5). goal_set: the k-d tree, the distance
+       transform and the region labels of the free space -->
+  <exec_depend>python3-scipy</exec_depend>
+  <!-- nav_benchmark: BasicNavigator, the goals, their results and cancels, the parameters the
+       run used, and the recorder (ros2 bag record) it starts -->
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ros2bag</exec_depend>
+  <!-- nav2_params.yaml and the committed SLAM map, which the benchmark runs on and
+       evaluate_navigation draws -->
+  <exec_depend>warehouse_navigation</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

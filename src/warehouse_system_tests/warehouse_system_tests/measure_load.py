@@ -54,15 +54,19 @@ Output: a line per sample (unless --quiet) and a summary table at the end. With 
 DIR/load.jsonl (one JSON object per sample), DIR/load_summary.json and DIR/load_summary.txt
 (the table).
 
+``--duration 0`` samples until Ctrl-C or SIGTERM, which then is the normal end: nav_benchmark
+runs it that way for the length of a benchmark.
+
 Exit codes: 0 the duration was sampled with Gazebo's statistics; 1 the measurement does not
 count (no Gazebo statistics, a suspend, or MemAvailable below 1.5 GiB); 2 a bad argument or
 --out cannot be written; 130 stopped early by Ctrl-C or SIGTERM (the summary covers the samples
-taken).
+taken; with --duration 0 the stop is no early stop, and the exit code is 0 or 1).
 """
 
 import argparse
 from dataclasses import dataclass
 import datetime
+import itertools
 import json
 import math
 import os
@@ -719,6 +723,13 @@ def _positive(text):
     return value
 
 
+def _not_negative(text):
+    value = float(text)
+    if not value >= 0.0:
+        raise argparse.ArgumentTypeError(f'{text} is below 0')
+    return value
+
+
 def main(argv=None):
     """Run the measure_load command; return its exit code."""
     parser = argparse.ArgumentParser(
@@ -728,8 +739,9 @@ def main(argv=None):
                     'print a summary table at the end.')
     parser.add_argument('--world', default='warehouse',
                         help='the Gazebo world, for /world/<world>/stats (default %(default)s)')
-    parser.add_argument('--duration', type=_positive, default=60.0, metavar='SECONDS',
-                        help='how long to sample, in seconds (default %(default)g)')
+    parser.add_argument('--duration', type=_not_negative, default=60.0, metavar='SECONDS',
+                        help='how long to sample, in seconds (default %(default)g); 0 samples '
+                             'until Ctrl-C or SIGTERM')
     parser.add_argument('--interval', type=_positive, default=DEFAULT_INTERVAL,
                         metavar='SECONDS',
                         help='seconds between samples (default %(default)g)')
@@ -738,7 +750,8 @@ def main(argv=None):
     parser.add_argument('--quiet', action='store_true',
                         help='print only the summary, not a line per sample')
     args = parser.parse_args(argv)
-    if args.interval > args.duration:
+    until_stopped = args.duration == 0.0
+    if not until_stopped and args.interval > args.duration:
         parser.error('--interval is longer than --duration')
 
     try:
@@ -762,7 +775,8 @@ def main(argv=None):
     info = {'world': args.world, 'topic': gazebo.topic, 'interval': args.interval,
             'ros_domain_id': sampler.run['ROS_DOMAIN_ID'],
             'gz_partition': sampler.run['GZ_PARTITION'], 'power': power_state()}
-    print(f'measure_load: every {args.interval:g} s for {args.duration:g} s; Gazebo statistics '
+    length = 'until stopped' if until_stopped else f'for {args.duration:g} s'
+    print(f'measure_load: every {args.interval:g} s {length}; Gazebo statistics '
           f'on {gazebo.topic}; processes with ROS_DOMAIN_ID {info["ros_domain_id"] or "unset"} '
           f'and GZ_PARTITION {info["gz_partition"] or "unset"}; {info["power"]}', flush=True)
 
@@ -780,7 +794,9 @@ def main(argv=None):
         previous = sampler.snapshot()
         start = previous.monotonic
         info['started'] = previous.wall.isoformat(timespec='seconds')
-        for number in range(1, int(args.duration / args.interval + 1e-9) + 1):
+        numbers = (itertools.count(1) if until_stopped
+                   else range(1, int(args.duration / args.interval + 1e-9) + 1))
+        for number in numbers:
             time.sleep(max(0.0, start + number * args.interval
                            - time.clock_gettime(time.CLOCK_MONOTONIC)))
             current = sampler.snapshot()
@@ -803,8 +819,10 @@ def main(argv=None):
             jsonl.close()
     info.setdefault('started', datetime.datetime.now().isoformat(timespec='seconds'))
 
+    # With --duration 0 the stop is the end the run asked for, not an early one.
+    stopped_early = interrupted and not until_stopped
     summary = summarize(records, info)
-    summary['stopped_early'] = interrupted
+    summary['stopped_early'] = stopped_early
     text = summary_text(summary)
     print(('\n' if not args.quiet else '') + text)
     if args.out:
@@ -819,7 +837,7 @@ def main(argv=None):
                   file=sys.stderr)
             return 2
         print(f'wrote {args.out}/load.jsonl, load_summary.json and load_summary.txt')
-    if interrupted:
+    if stopped_early:
         print(f'stopped early after {summary["duration"]:.0f} s', file=sys.stderr)
         return 130
     return 1 if summary['warnings'] else 0

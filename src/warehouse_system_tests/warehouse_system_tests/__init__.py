@@ -15,5 +15,6 @@
 """
 The simulation test tools of the warehouse AMR, and their helpers.
 
-The tools are drive_route, evaluate_localization and map_timelapse (see the README).
+The tools are drive_route, evaluate_localization, map_timelapse, measure_load, goal_set,
+nav_benchmark and evaluate_navigation (see the README).
 """
